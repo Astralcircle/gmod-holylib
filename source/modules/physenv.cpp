@@ -6,6 +6,7 @@
 #include "module.h"
 #include "lua.h"
 #include <vphysics_interface.h>
+#include <vphysics/collision_set.h>
 #include <detouring/classproxy.hpp>
 #include "tier1/tier1.h"
 #define DLL_TOOLS
