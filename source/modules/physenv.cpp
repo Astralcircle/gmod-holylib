@@ -1,11 +1,15 @@
-// Minimal version: only optimize IsPhysicsObjectValid using hash table
+#define PHYSENV_C 1
+#if CUSTOM_VPHYSICS_BUILD
+#include "physics_holylib.h"
+#endif
+#include "LuaInterface.h"
 #include "module.h"
-#include <unordered_map>
-#include <unordered_set>
+#include "lua.h"
 #include <vphysics_interface.h>
 #include <detouring/classproxy.hpp>
-#include "detours.h"
 #include "tier1/tier1.h"
+#define DLL_TOOLS
+#include "detours.h"
 
 #if CUSTOM_VPHYSICS_BUILD
 #define private public
@@ -14,7 +18,8 @@
 #include "physics_object.h"
 #endif
 
-#if defined(PHYSENV_INCLUDEIVPFALLBACK) || !defined(CUSTOM_VPHYSICS_BUILD)
+#if !defined(CUSTOM_VPHYSICS_BUILD)
+#undef IVP_IF
 #include "ivp_old/ivp_classes.h"
 #include "ivp_old/ivp_types.h"
 #include "ivp_old/cphysicsenvironment.h"
@@ -26,38 +31,63 @@ using CPhysicsEnvironment = GMODSDK::CPhysicsEnvironment;
 using CPhysicsObject = GMODSDK::CPhysicsObject;
 #endif
 
-// memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
-// ------------------------------------------------------------------
-// Minimal module to set up the hook
-// ------------------------------------------------------------------
 class CPhysEnvModule : public IModule
 {
 public:
 	void Init(CreateInterfaceFn* appfn, CreateInterfaceFn* gamefn) override;
-	void LuaInit(GarrysMod::Lua::ILuaInterface* pLua, bool bServerInit) override {}
-	void LuaShutdown(GarrysMod::Lua::ILuaInterface* pLua) override {}
+	void LuaInit(GarrysMod::Lua::ILuaInterface* pLua, bool bServerInit) override;
+	void LuaShutdown(GarrysMod::Lua::ILuaInterface* pLua) override;
 	void InitDetour(bool bPreServer) override;
 	void Shutdown() override;
-	const char* Name() override { return "physenv_opt"; };
+	const char* Name() override { return "physenv"; };
 	int Compatibility() override { return LINUX32 | LINUX64; };
 };
 
 static CPhysEnvModule g_pPhysEnvModule;
 IModule* pPhysEnvModule = &g_pPhysEnvModule;
 
+IPhysics* g_pPhysics = nullptr;
+
+class CPhysicsCollisionSet : public IPhysicsCollisionSet
+{
+	~CPhysicsCollisionSet() {}
+private:
+	unsigned int m_bits[32];
+};
+
+class IVP_VHash_Store;
+class CPhysicsInterface : public CTier1AppSystem<IPhysics>
+{
+public:
+	CUtlVector<IPhysicsEnvironment *>	m_envList;
+	CUtlVector<CPhysicsCollisionSet>	m_collisionSets;
+	IVP_VHash_Store						*m_pCollisionSetHash;
+};
+
 // ------------------------------------------------------------------
-// Data structures to track physics objects and environments
+// Object tracking for IsPhysicsObjectValid optimization
 // ------------------------------------------------------------------
+
 struct ILuaPhysicsEnvironment;
 
-static std::unordered_map<IPhysicsEnvironment*, ILuaPhysicsEnvironment*> g_pEnvironmentToLua;
-static std::unordered_map<IPhysicsObject*, ILuaPhysicsEnvironment*> g_pObjects; // all objects
+static unordered_map<IPhysicsEnvironment*, ILuaPhysicsEnvironment*> g_pEnvironmentToLua;
+static unordered_map<IPhysicsObject*, ILuaPhysicsEnvironment*> g_pObjects;
 
 struct ILuaPhysicsEnvironment
 {
-	ILuaPhysicsEnvironment(IPhysicsEnvironment* env) : pEnvironment(env) {}
+	ILuaPhysicsEnvironment(IPhysicsEnvironment* env)
+	{
+		pEnvironment = env;
+
+		int iCount;
+		IPhysicsObject** pList = (IPhysicsObject**)pEnvironment->GetObjectList(&iCount);
+		for (int i = 0; i < iCount; ++i)
+		{
+			RegisterObject(pList[i]);
+		}
+	}
 
 	~ILuaPhysicsEnvironment()
 	{
@@ -72,7 +102,12 @@ struct ILuaPhysicsEnvironment
 
 	inline void RegisterObject(IPhysicsObject* pObject)
 	{
-		if (pObjects.insert(pObject).second)
+		auto it = pObjects.find(pObject);
+		if (it == pObjects.end())
+			pObjects.insert(pObject);
+
+		auto it2 = g_pObjects.find(pObject);
+		if (it2 == g_pObjects.end())
 			g_pObjects[pObject] = this;
 	}
 
@@ -80,26 +115,16 @@ struct ILuaPhysicsEnvironment
 	{
 		auto it = pObjects.find(pObject);
 		if (it != pObjects.end())
-		{
 			pObjects.erase(it);
-			g_pObjects.erase(pObject);
-		}
+
+		auto it2 = g_pObjects.find(pObject);
+		if (it2 != g_pObjects.end())
+			g_pObjects.erase(it2);
 	}
 
-	inline bool HasObject(IPhysicsObject* pObject) const
-	{
-		return pObjects.find(pObject) != pObjects.end();
-	}
-
+	unordered_set<IPhysicsObject*> pObjects;
 	IPhysicsEnvironment* pEnvironment = nullptr;
-	std::unordered_set<IPhysicsObject*> pObjects;
 };
-
-static inline ILuaPhysicsEnvironment* GetPhysicsEnvironment(IPhysicsEnvironment* pEnv)
-{
-	auto it = g_pEnvironmentToLua.find(pEnv);
-	return (it != g_pEnvironmentToLua.end()) ? it->second : nullptr;
-}
 
 static inline ILuaPhysicsEnvironment* RegisterPhysicsEnvironment(IPhysicsEnvironment* pEnv)
 {
@@ -123,35 +148,75 @@ static inline void UnregisterPhysicsEnvironment(IPhysicsEnvironment* pEnv)
 	}
 }
 
-static inline ILuaPhysicsEnvironment* GetPhysicsObjectLuaEnvironment(IPhysicsObject* pObject)
-{
-	auto it = g_pObjects.find(pObject);
-	return (it != g_pObjects.end()) ? it->second : nullptr;
-}
-
 static inline bool IsRegisteredPhysicsObject(IPhysicsObject* pObject)
 {
-	return g_pObjects.find(pObject) != g_pObjects.end();
+	auto it = g_pObjects.find(pObject);
+	return it != g_pObjects.end();
+}
+
+static inline ILuaPhysicsEnvironment* GetPhysicsEnvironment(IPhysicsEnvironment* pEnv)
+{
+	auto it = g_pEnvironmentToLua.find(pEnv);
+	if (it != g_pEnvironmentToLua.end())
+		return it->second;
+	return nullptr;
 }
 
 // ------------------------------------------------------------------
-// Hooks to track object creation / destruction
+// CPhysicsEnvironment detours to keep g_pObjects in sync
 // ------------------------------------------------------------------
-#if PHYSENV_INCLUDEIVPFALLBACK
 
 static Detouring::Hook detour_CPhysicsEnvironment_DestroyObject;
-
 void hook_CPhysicsEnvironment_DestroyObject(GMODSDK::CPhysicsEnvironment* pEnvironment, IPhysicsObject* pObject)
 {
-	ILuaPhysicsEnvironment* pLuaEnv = GetPhysicsObjectLuaEnvironment(pObject);
-	if (pLuaEnv && pLuaEnv->pEnvironment)
+	ILuaPhysicsEnvironment* pLuaEnvironment = nullptr;
 	{
-		// Remove from tracking
-		pLuaEnv->UnregisterObject(pObject);
+		auto it = g_pObjects.find(pObject);
+		if (it != g_pObjects.end())
+			pLuaEnvironment = it->second;
 	}
 
-	// Call original
-	detour_CPhysicsEnvironment_DestroyObject.GetTrampoline<Symbols::CPhysicsEnvironment_DestroyObject>()(pEnvironment, pObject);
+	if (!pLuaEnvironment || !pLuaEnvironment->pEnvironment)
+	{
+		detour_CPhysicsEnvironment_DestroyObject.GetTrampoline<Symbols::CPhysicsEnvironment_DestroyObject>()(pEnvironment, pObject);
+		return;
+	}
+
+	CPhysicsEnvironment* pEnv = (CPhysicsEnvironment*)pLuaEnvironment->pEnvironment;
+	int foundIndex = -1;
+	for (int i = pEnv->m_objects.Count(); --i >= 0; )
+		if (pEnv->m_objects[i] == pObject)
+			foundIndex = i;
+
+	if (foundIndex == -1)
+	{
+		detour_CPhysicsEnvironment_DestroyObject.GetTrampoline<Symbols::CPhysicsEnvironment_DestroyObject>()(pEnvironment, pObject);
+		return;
+	}
+
+#if ARCHITECTURE_X86
+	pEnv->m_objects.FastRemove(foundIndex);
+	pLuaEnvironment->UnregisterObject(pObject);
+
+	GMODSDK::CPhysicsObject* pPhysics = static_cast<GMODSDK::CPhysicsObject*>(pObject);
+	pPhysics->AddCallbackFlags(CALLBACK_MARKED_FOR_DELETE);
+
+	if (foundIndex > pEnv->m_lastObjectThisTick)
+		pPhysics->ForceSilentDelete();
+
+	if (pEnv->m_inSimulation || pEnv->m_queueDeleteObject)
+	{
+		pEnv->m_deadObjects.AddToTail(pObject);
+	}
+	else
+	{
+		pEnv->m_pSleepEvents->DeleteObject(pPhysics);
+		delete pObject;
+	}
+#else
+	detour_CPhysicsEnvironment_DestroyObject.GetTrampoline<Symbols::CPhysicsEnvironment_DestroyObject>()(pEnv, pObject);
+	pLuaEnvironment->UnregisterObject(pObject);
+#endif
 }
 
 static Detouring::Hook detour_CPhysicsEnvironment_Restore;
@@ -250,11 +315,10 @@ void hook_CPhysicsEnvironment_C2(IPhysicsEnvironment* pEnv)
 	RegisterPhysicsEnvironment(pEnv);
 }
 
-#endif // PHYSENV_INCLUDEIVPFALLBACK
+// ------------------------------------------------------------------
+// IsPhysicsObjectValid optimization
+// ------------------------------------------------------------------
 
-// ------------------------------------------------------------------
-// Hook for GMod::Util::IsPhysicsObjectValid
-// ------------------------------------------------------------------
 static Detouring::Hook detour_GMod_Util_IsPhysicsObjectValid;
 static bool hook_GMod_Util_IsPhysicsObjectValid(IPhysicsObject* pObject)
 {
@@ -262,30 +326,68 @@ static bool hook_GMod_Util_IsPhysicsObjectValid(IPhysicsObject* pObject)
 		return false;
 
 #if CUSTOM_VPHYSICS_BUILD
-	if (g_pPhysicsHolyLib && g_pPhysicsHolyLib->IsValidObject(pObject))
-		return true;
+	if (g_pPhysicsHolyLib)
+	{
+		return g_pPhysicsHolyLib->IsValidObject(pObject);
+	}
+	else
 #endif
-
-	return IsRegisteredPhysicsObject(pObject);
+	{
+		return IsRegisteredPhysicsObject(pObject);
+	}
 }
 
 // ------------------------------------------------------------------
-// Module implementation
+// Module interface
 // ------------------------------------------------------------------
+
 void CPhysEnvModule::Init(CreateInterfaceFn* appfn, CreateInterfaceFn* gamefn)
 {
-	// Minimal initialization - just get needed interfaces if any
+	if (appfn[0])
+	{
+		g_pPhysics = (IPhysics*)appfn[0](VPHYSICS_INTERFACE_VERSION, nullptr);
+	}
+	else
+	{
+		SourceSDK::FactoryLoader vphysics_loader("vphysics");
+		g_pPhysics = vphysics_loader.GetInterface<IPhysics>(VPHYSICS_INTERFACE_VERSION);
+	}
+
+	Detour::CheckValue("get interface", "g_pPhysics", g_pPhysics != nullptr);
+}
+
+void CPhysEnvModule::LuaInit(GarrysMod::Lua::ILuaInterface* pLua, bool bServerInit)
+{
+	if (bServerInit)
+		return;
+
+	if (pLua == g_Lua)
+	{
+		CPhysicsInterface* pPhys = (CPhysicsInterface*)g_pPhysics;
+		FOR_EACH_VEC(pPhys->m_envList, i)
+		{
+			RegisterPhysicsEnvironment(pPhys->m_envList[i]);
+		}
+	}
+}
+
+void CPhysEnvModule::LuaShutdown(GarrysMod::Lua::ILuaInterface* pLua)
+{
 }
 
 void CPhysEnvModule::InitDetour(bool bPreServer)
 {
 	if (bPreServer)
-		return; // nothing to do pre-server
+		return;
 
-#if PHYSENV_INCLUDEIVPFALLBACK
+	if (!g_pModuleManager.IsUsingGhostInj())
+	{
+		Warning(PROJECT_NAME " - physenv: we weren't loaded early enough! use the ghostinj and ensure that holylib is loaded properly!\n");
+		return;
+	}
+
 	SourceSDK::FactoryLoader vphysics_loader("vphysics");
 
-	// Hook object creation/destruction to track objects
 	Detour::Create(
 		&detour_CPhysicsEnvironment_DestroyObject, "CPhysicsEnvironment::DestroyObject",
 		vphysics_loader.GetModule(), Symbols::CPhysicsEnvironment_DestroyObjectSym,
@@ -339,49 +441,26 @@ void CPhysEnvModule::InitDetour(bool bPreServer)
 		vphysics_loader.GetModule(), Symbols::CPhysicsEnvironment_C2Sym,
 		(void*)hook_CPhysicsEnvironment_C2, m_pID
 	);
-#endif
 
-	// Hook GMod's IsPhysicsObjectValid
 	SourceSDK::FactoryLoader server_loader("server");
 	Detour::Create(
 		&detour_GMod_Util_IsPhysicsObjectValid, "GMod::Util::IsPhysicsObjectValid",
 		server_loader.GetModule(), Symbols::GMod_Util_IsPhysicsObjectValidSym,
 		(void*)hook_GMod_Util_IsPhysicsObjectValid, m_pID
 	);
+
+	if (!detour_CPhysicsEnvironment_DestroyObject.IsValid() || !detour_CPhysicsEnvironment_CreatePolyObject.IsValid() || !detour_CPhysicsEnvironment_CreatePolyObjectStatic.IsValid())
+	{
+		detour_GMod_Util_IsPhysicsObjectValid.Disable();
+		detour_GMod_Util_IsPhysicsObjectValid.Destroy();
+		Warning(PROJECT_NAME " - physenv: Removed GMod::Util::IsPhysicsObjectValid due to other detours failing to hook!\n");
+	}
 }
 
 void CPhysEnvModule::Shutdown()
 {
-	// Clean up detours
-	detour_GMod_Util_IsPhysicsObjectValid.Disable();
-	detour_GMod_Util_IsPhysicsObjectValid.Destroy();
-
-#if PHYSENV_INCLUDEIVPFALLBACK
-	detour_CPhysicsEnvironment_DestroyObject.Disable();
-	detour_CPhysicsEnvironment_DestroyObject.Destroy();
-	detour_CPhysicsEnvironment_Restore.Disable();
-	detour_CPhysicsEnvironment_Restore.Destroy();
-	detour_CPhysicsEnvironment_TransferObject.Disable();
-	detour_CPhysicsEnvironment_TransferObject.Destroy();
-	detour_CPhysicsEnvironment_CreateSphereObject.Disable();
-	detour_CPhysicsEnvironment_CreateSphereObject.Destroy();
-	detour_CPhysicsEnvironment_UnserializeObjectFromBuffer.Disable();
-	detour_CPhysicsEnvironment_UnserializeObjectFromBuffer.Destroy();
-	detour_CPhysicsEnvironment_CreatePolyObjectStatic.Disable();
-	detour_CPhysicsEnvironment_CreatePolyObjectStatic.Destroy();
-	detour_CPhysicsEnvironment_CreatePolyObject.Disable();
-	detour_CPhysicsEnvironment_CreatePolyObject.Destroy();
-	detour_CPhysicsEnvironment_D2.Disable();
-	detour_CPhysicsEnvironment_D2.Destroy();
-	detour_CPhysicsEnvironment_C2.Disable();
-	detour_CPhysicsEnvironment_C2.Destroy();
-#endif
-
-	// Clean up any remaining environments
-	for (auto& pair : g_pEnvironmentToLua)
+	for (auto it = g_pEnvironmentToLua.begin(); it != g_pEnvironmentToLua.end(); ++it)
 	{
-		delete pair.second;
+		Msg(PROJECT_NAME " - physenv: Found remaining environment! (%p - %p)\n", it->first, it->second);
 	}
-	g_pEnvironmentToLua.clear();
-	g_pObjects.clear();
 }
