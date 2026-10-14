@@ -1,3 +1,6 @@
+// If set, keep the Source-engine VPhysics fallback structures needed by the validity optimization.
+#define PHYSENV_INCLUDEIVPFALLBACK 1
+
 // Optimized-only physenv module.
 // Keeps the IsPhysicsObjectValid fast path and the hooks required to maintain
 // the live physics-object registry. All other physenv functionality is removed.
@@ -7,8 +10,10 @@
 #include "lua.h"
 #include <vphysics_interface.h>
 #include "vcollide_parse.h"
-#include "detours.h"
+#include <detouring/classproxy.hpp>
 #include "tier1/tier1.h"
+#define DLL_TOOLS
+#include "detours.h"
 
 #if CUSTOM_VPHYSICS_BUILD
 #define private public
@@ -17,8 +22,12 @@
 #include "physics_object.h"
 #endif
 
-#if defined(SYSTEM_LINUX) || !defined(CUSTOM_VPHYSICS_BUILD)
+#if defined(PHYSENV_INCLUDEIVPFALLBACK) || !defined(CUSTOM_VPHYSICS_BUILD)
+#undef IVP_IF
+#include "ivp_old/ivp_classes.h"
+#include "ivp_old/ivp_types.h"
 #include "ivp_old/cphysicsenvironment.h"
+#include "ivp_old/cphysicsobject.h"
 #endif
 
 #if !defined(CUSTOM_VPHYSICS_BUILD)
@@ -91,9 +100,9 @@ static void RegisterEnvironment(IPhysicsEnvironment* pEnvironment)
 		return;
 
 	int iCount = 0;
-	IPhysicsObject** pObjects = static_cast<IPhysicsObject**>(pEnvironment->GetObjectList(&iCount));
+	const IPhysicsObject** pObjects = pEnvironment->GetObjectList(&iCount);
 	for (int i = 0; pObjects && i < iCount; ++i)
-		RegisterObject(pEnvironment, pObjects[i]);
+		RegisterObject(pEnvironment, const_cast<IPhysicsObject*>(pObjects[i]));
 }
 
 static void UnregisterEnvironment(IPhysicsEnvironment* pEnvironment)
@@ -175,7 +184,7 @@ static void hook_CPhysicsEnvironment_DestroyObject(GMODSDK::CPhysicsEnvironment*
 	pOwner->m_objects.FastRemove(iFoundIndex);
 	UnregisterObject(pOwner, pObject);
 
-	GMODSDK::CPhysicsObject* pPhysicsObject = static_cast<GMODSDK::CPhysicsObject*>(pObject);
+	GMODSDK::CPhysicsObject* pPhysicsObject = (GMODSDK::CPhysicsObject*)pObject;
 	pPhysicsObject->AddCallbackFlags(CALLBACK_MARKED_FOR_DELETE);
 
 	if (iFoundIndex > pOwner->m_lastObjectThisTick)
