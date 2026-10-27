@@ -2881,12 +2881,6 @@ void CPhysEnvModule::InitDetour(bool bPreServer)
 			(void*)hook_IVP_Mindist_Manager_recheck_ov_element, m_pID
 		);
 
-		Detour::Create(
-			&detour_IVP_Mindist_Minimize_Solver_p_minimize_PK, "IVP_Mindist_Minimize_Solver::p_minimize_PK",
-			vphysics_loader.GetModule(), Symbols::IVP_Mindist_Minimize_Solver_p_minimize_PKSym,
-			(void*)hook_IVP_Mindist_Minimize_Solver_p_minimize_PK, m_pID
-		);
-
 		func_IVP_Mindist_Base_get_objects = (Symbols::IVP_Mindist_Base_get_objects)Detour::GetFunction(vphysics_loader.GetModule(), Symbols::IVP_Mindist_Base_get_objectsSym);
 		Detour::CheckFunction((void*)func_IVP_Mindist_Base_get_objects, "IVP_Mindist_Base::get_objects");
 	}
