@@ -44,7 +44,7 @@ public:
 
 /*
  * This module can't be disabled at runtime!
- * 
+ *
  * This is because of it replacing the entire CChangeFrameList class which is used & stored in the engine.
  * I need to restore and fix the code in Shutdown to allow proper unloading.
  */
@@ -100,7 +100,7 @@ public:
 		{
 			int prop = pPropIndices[i];
 			m_ChangeTicks[prop] = iTick;
-			
+
 			same = same && m_LastChangeTicks[i] == prop;
 			m_LastChangeTicks[i] = prop;
 		}
@@ -286,20 +286,20 @@ inline ServerClassCache* GetServerClassCache(const SendTable *pTable)
 }
 
 static Detouring::Hook detour_SendTable_CullPropsFromProxies;
-static int hook_SendTable_CullPropsFromProxies( 
+static int hook_SendTable_CullPropsFromProxies(
 	const SendTable *pTable,
-	
+
 	const int *pStartProps,
 	int nStartProps,
 
 	const int iClient,
-	
+
 	const CSendProxyRecipients *pOldStateProxies,
-	const int nOldStateProxies, 
-	
+	const int nOldStateProxies,
+
 	const CSendProxyRecipients *pNewStateProxies,
 	const int nNewStateProxies,
-	
+
 	int *pOutProps,
 	int nMaxOutProps
 	)
@@ -361,7 +361,7 @@ void RecurseStack(ServerClassCache &cache, unsigned char* stack, CSendNode *node
 		//cache.send_nodes[node->m_DataTableProxyIndex] = node;
 		player_local_exclusive_send_proxy[node->m_DataTableProxyIndex] = precalc->m_DatatableProps[node->m_iDatatableProp]->GetDataTableProxyFn() == local_sendtable_proxy;
 	}
-			
+
 	//("data %d %d %s %d\n", node->m_RecursiveProxyIndex, stack[node->m_RecursiveProxyIndex], node->m_pTable->GetName(), node->m_nRecursiveProps);
 	for (int i = 0; i < node->m_Children.Count(); ++i) {
 		CSendNode *child = node->m_Children[i];
@@ -388,7 +388,7 @@ static inline void CBitVec_AndNot(CBitVec<MAX_EDICTS>* a, const CBitVec<MAX_EDIC
 /*
  * For now this is called from the pvs module meaning we RELY on it.
  * What did we change? basically nothing yet. I'm just testing around.
- * 
+ *
  * NOTE: It's shit & somehow were loosing performance to something. Probably us detouring it is causing our performance loss.
  */
 static ConVar* sv_force_transmit_ents = nullptr;
@@ -464,7 +464,7 @@ static inline CBaseViewModel* GetViewModel(const void* pPlayer, const int nViewM
 	return (CBaseViewModel*)EHandleToEntity((CBasePlayer::CBaseViewModelHandle*)m_hViewModel_Offset.GetPointerArray(pPlayer, nViewModelSlot));
 }
 
-// DT_LocalPlayerExclusive is based off CBasePlayer! So we don't need to get it first as offsets are all for CBasePlayer
+// DT_LocalPlayerExclusive is based off CBasePlayer! So we don't need to get it first as all offsets are for CBasePlayer
 static DTVarByOffset m_hViewEntity_Offset("DT_LocalPlayerExclusive", "m_hViewEntity");
 static inline CBaseEntity* GetViewEntity(void* pPlayer)
 {
@@ -494,7 +494,33 @@ static ConVar networking_bind_viewmodels_to_player("holylib_networking_bind_view
 static ConVar networking_cachedump("holylib_networking_cachedump", "0", 0, "Debug. You wouldn't need this...");
 static ConVar networking_areasplit("holylib_networking_areasplit", "0", 0, "PVS entities are split into areas");
 static ConVar networking_fastcharactertransmit("holylib_networking_fastcharactertransmit", "1", 0, "Experimental");
-struct EntityTransmitCache // Well.... Still kinda acts as a tick-based cache, though its a good foundation now.
+
+// Areaportal brushes can extend beyond a door's collision bounds. Keep door
+// entities out of the area-filtered cache and let the regular PVS test decide.
+static bool IsDoorLikeEntity(const CBaseEntity* pEntity)
+{
+	const char* pClassname = pEntity ? pEntity->GetClassname() : nullptr;
+	if (!pClassname)
+		return false;
+
+	for (const char* p = pClassname; *p; ++p)
+	{
+		// Do not read beyond the terminating null byte of a short classname.
+		if (!p[1] || !p[2] || !p[3])
+			break;
+
+		const char c0 = (p[0] >= 'A' && p[0] <= 'Z') ? p[0] + ('a' - 'A') : p[0];
+		const char c1 = (p[1] >= 'A' && p[1] <= 'Z') ? p[1] + ('a' - 'A') : p[1];
+		const char c2 = (p[2] >= 'A' && p[2] <= 'Z') ? p[2] + ('a' - 'A') : p[2];
+		const char c3 = (p[3] >= 'A' && p[3] <= 'Z') ? p[3] + ('a' - 'A') : p[3];
+
+		if (c0 == 'd' && c1 == 'o' && c2 == 'o' && c3 == 'r')
+			return true;
+	}
+
+	return false;
+}
+struct EntityTransmitCache // Well.... Still kinda acts like a tick-based cache, though its a good foundation now.
 {
 	// Updates the cache for the current tick
 	void UpdateEntities(const unsigned short *pEdictIndices, const int nEdicts)
@@ -675,7 +701,7 @@ struct EntityTransmitCache // Well.... Still kinda acts as a tick-based cache, t
 						CBaseHandle* pHandsHandle = (CBaseHandle*)m_Hands_Offset.GetPointer(pPlayer);
 						CBaseEntity* pHands = GetGMODPlayerHands(pPlayer);
 						if (pHands)
-							Msg("	GModHands - %p %i %i %i\n", pHandsHandle, pHandsHandle->ToInt(), pHandsHandle->GetEntryIndex(), pHandsHandle->GetSerialNumber());
+							Msg("\tGModHands - %p %i %i %i\n", pHandsHandle, pHandsHandle->ToInt(), pHandsHandle->GetEntryIndex(), pHandsHandle->GetSerialNumber());
 					}
 
 					if (bBindViewModelsToPlayer)
@@ -685,7 +711,7 @@ struct EntityTransmitCache // Well.... Still kinda acts as a tick-based cache, t
 							CBasePlayer::CBaseViewModelHandle* pViewModelHandle = (CBasePlayer::CBaseViewModelHandle*)m_hViewModel_Offset.GetPointerArray(pPlayer, i);
 							CBaseEntity* pViewModel = GetViewModel(pPlayer, i);
 							if (pViewModel)
-								Msg("	ViewModel: %i - %p %i %i %i\n", i, pViewModelHandle, pViewModelHandle->ToInt(), pViewModelHandle->GetEntryIndex(), pViewModelHandle->GetSerialNumber());
+								Msg("\tViewModel: %i - %p %i %i %i\n", i, pViewModelHandle, pViewModelHandle->ToInt(), pViewModelHandle->GetEntryIndex(), pViewModelHandle->GetSerialNumber());
 						}
 					}
 
@@ -695,7 +721,7 @@ struct EntityTransmitCache // Well.... Still kinda acts as a tick-based cache, t
 						CBaseCombatWeaponHandle* pWeaponHandle = (CBaseCombatWeaponHandle*)m_hMyWeapons_Offset.GetPointerArray(pPlayer, i);
 						CBaseEntity *pWeapon = GetMyWeapon(pPlayer, i);
 						if (pWeapon)
-							Msg("	Weapon: %i - %p %i %i %i\n", i, pWeaponHandle, pWeaponHandle->ToInt(), pWeaponHandle->GetEntryIndex(), pWeaponHandle->GetSerialNumber());
+							Msg("\tWeapon: %i - %p %i %i %i\n", i, pWeaponHandle, pWeaponHandle->ToInt(), pWeaponHandle->GetEntryIndex(), pWeaponHandle->GetSerialNumber());
 					}
 				}
 			}
@@ -773,87 +799,102 @@ struct EntityTransmitCache // Well.... Still kinda acts as a tick-based cache, t
 	// Only called with areasplit enabled
 	void AddPVSEntity(CBaseEntity* pEntity)
 	{
-#if 0
-		int nArea = Util::engineserver->GetArea(pEntity->GetAbsOrigin());
-		if (nArea == 0)
+		// Areaportals may extend beyond the physical bounds of their doors.
+		// Door entities must therefore bypass area filtering and use the regular PVS path.
+		if (IsDoorLikeEntity(pEntity))
 		{
-			// Pray that this fallback works
-			nArea = Util::engineserver->GetArea(pEntity->WorldSpaceCenter());
+			AddPVSEntityFallback(pEntity);
+			return;
 		}
-#endif
+
 		const CCollisionProperty* pCollision = GetEntityCollisionProperty(pEntity);
 		if (!pCollision)
 		{
-			int nArea = Util::engineserver->GetArea(pEntity->GetAbsOrigin());
-			
-			if (nArea >= MAX_MAP_AREAS || nArea <= 0)
+			const int nArea = Util::engineserver->GetArea(pEntity->GetAbsOrigin());
+			if (nArea <= 0 || nArea >= MAX_MAP_AREAS)
 			{
-				pPVSEntityList[++nPVSEdictCount] = pEntity;
+				AddPVSEntityFallback(pEntity);
 				return;
 			}
 
-			// We do -1 since nArea 0 is not actually an valid area
-			AreaCache& pArea = nAreaEntities[nArea-1];
-			if (pArea.nCount >= nMaxEntitiesPerArea)
+			AddEntityToArea(nArea, pEntity);
+			return;
+		}
+
+		// Use world-space bounds so entity rotation is represented correctly.
+		Vector worldMins;
+		Vector worldMaxs;
+		pCollision->WorldSpaceAABB(&worldMins, &worldMaxs);
+
+		Vector center;
+		VectorLerp(worldMins, worldMaxs, 0.5f, center);
+
+		// If the sampled bounds touch multiple areas, avoid area culling.
+		// This is conservative: false positives cost a PVS check, false negatives hide entities.
+		int firstArea = 0;
+		for (int i = 0; i < 9; ++i)
+		{
+			Vector point;
+			if (i == 8)
 			{
-				pPVSEntityList[++nPVSEdictCount] = pEntity;
+				point = center;
+			}
+			else
+			{
+				point.x = (i & 1) ? worldMaxs.x : worldMins.x;
+				point.y = (i & 2) ? worldMaxs.y : worldMins.y;
+				point.z = (i & 4) ? worldMaxs.z : worldMins.z;
+			}
+
+			const int nArea = Util::engineserver->GetArea(point);
+			if (nArea <= 0 || nArea >= MAX_MAP_AREAS)
+			{
+				AddPVSEntityFallback(pEntity);
 				return;
 			}
 
-			pArea.pEntities[pArea.nCount++] = pEntity;
+			if (firstArea == 0)
+				firstArea = nArea;
+			else if (firstArea != nArea)
+			{
+				AddPVSEntityFallback(pEntity);
+				return;
+			}
+		}
+
+		if (firstArea == 0)
+		{
+			AddPVSEntityFallback(pEntity);
 			return;
 		}
 
-		const Vector& mins = GetCollisionPropertyMins( pCollision );
-		const Vector& maxs = GetCollisionPropertyMaxs( pCollision );
+		AddEntityToArea(firstArea, pEntity);
+	}
 
-		Vector vecResult;
-		pCollision->CollisionToWorldSpace( mins, &vecResult );
-		int minsArea = Util::engineserver->GetArea(vecResult);
-		bool bMinsValid = minsArea < MAX_MAP_AREAS && minsArea > 0; // Area 0 is also invalid, thats why > 0
-
-		pCollision->CollisionToWorldSpace( maxs, &vecResult );
-		int maxsArea = Util::engineserver->GetArea(vecResult);
-		bool bMaxsValid = maxsArea < MAX_MAP_AREAS && maxsArea > 0;
-
-		if (!bMinsValid && !bMaxsValid)
+	inline void AddPVSEntityFallback(CBaseEntity* pEntity)
+	{
+		if (nPVSEdictCount + 1 >= MAX_EDICTS)
 		{
-			Vector obbCenter;
-			VectorLerp( mins, maxs, 0.5f, obbCenter );
-
-			// Test center, in case you have things like a vent door where the mins/maxs may be out of bounds but not the center
-			pCollision->CollisionToWorldSpace( obbCenter, &vecResult );
-			minsArea = Util::engineserver->GetArea(vecResult);
-			bMinsValid = minsArea < MAX_MAP_AREAS && minsArea > 0;
-		}
-
-		if (!bMinsValid && !bMaxsValid)
-		{
-			pPVSEntityList[++nPVSEdictCount] = pEntity;
+			Warning(PROJECT_NAME " - networking: PVS fallback list overflow!\n");
 			return;
 		}
 
-		if (bMinsValid)
-		{
-			AddEntityToArea(minsArea, pEntity);
-		}
-
-		// IMPORTANT: This entity stretches across to another area! Probably a door with an areaportal!
-		//            If it crosses more than two areas, GG. Not our problem
-		if (bMaxsValid && minsArea != maxsArea)
-		{
-			// We add them here too, an entity can be in two areas at once for our case
-			AddEntityToArea(maxsArea, pEntity);
-		}
+		pPVSEntityList[++nPVSEdictCount] = pEntity;
 	}
 
 	inline void AddEntityToArea(int areaNum, CBaseEntity* pEntity)
 	{
 		// We do -1 since nArea 0 is not actually an valid area and we shifted all by 1
+		if (areaNum <= 0 || areaNum >= MAX_MAP_AREAS)
+		{
+			AddPVSEntityFallback(pEntity);
+			return;
+		}
+
 		AreaCache& pArea = nAreaEntities[areaNum-1];
 		if (pArea.nCount >= nMaxEntitiesPerArea)
 		{
-			pPVSEntityList[++nPVSEdictCount] = pEntity;
+			AddPVSEntityFallback(pEntity);
 			return;
 		}
 
@@ -941,7 +982,7 @@ struct PlayerTransmitCache
 		} else {
 			nLastAcknowledgedTick = nTick - nTransmitTicks;
 		}
-		
+
 		for (int i=0; i<MAX_WEAPONS; ++i)
 		{
 			WeaponSlot& pSlot = pWeapons[i];
@@ -1032,7 +1073,7 @@ public:
 	{
 		if (V_stricmp(pEvent->GetName(), "OnRequestFullUpdate") != 0)
 			return;
-		
+
 		int nPlayerSlot = pEvent->GetInt("index");
 		if (nPlayerSlot >= gpGlobals->maxClients || nPlayerSlot < 0)
 		{
@@ -1052,7 +1093,7 @@ struct PlayerTransmitTickCache
 	int nAreaNum = 0;
 
 	// All Entities sent to this player from the transmit check
-	// 
+	//
 	// NOTE:
 	// We remove all Entities networked inside the client's transmit check (see pClientCache usage)
 	// so the client and anything networked inside CGMOD_Player::SetTransmit is removed from this cache
@@ -1374,7 +1415,7 @@ static inline void DoTransmitPVSCheck(
 		}
 
 		// Parent isn't transmitted, so we also shouldn't be transmitted.
-		// if ( g_pDontTransmitCache.Get( checkIndex ) )
+		// if ( g_pDontTransmitCache.Get( checkIndex) )
 		//	break;
 
 		const int checkFlags = checkEdict->m_fStateFlags & (FL_EDICT_DONTSEND|FL_EDICT_ALWAYS|FL_EDICT_PVSCHECK|FL_EDICT_FULLCHECK);
@@ -1441,7 +1482,7 @@ bool New_CServerGameEnts_CheckTransmit(IServerGameEnts* gameents, CCheckTransmit
 	CBaseEntity *pRecipientEntity = Util::servergameents->EdictToBaseEntity(pInfo->m_pClientEnt);
 	if (!pRecipientEntity)
 		return true;
-	
+
 	CBasePlayer *pRecipientPlayer = static_cast<CBasePlayer*>(pRecipientEntity);
 	const int skyBoxArea = GetSkybox3DArea(pRecipientPlayer);
 	// current transmit client | player index / entindex - 1
@@ -1963,7 +2004,7 @@ void CNetworkingModule::InitDetour(bool bPreServer)
 	g_BSPData = Detour::ResolveSymbolWithOffset<CCollisionBSPData>(engine_loader.GetModule(), Symbols::g_BSPDataSym);
 #endif
 	Detour::CheckValue("get class", "CCollisionBSPData", g_BSPData != nullptr);
-	
+
 #if defined(ARCHITECTURE_X86) && defined(SYSTEM_LINUX)
 	PropTypeFns* pPropTypeFns = Detour::ResolveSymbol<PropTypeFns>(engine_loader, Symbols::g_PropTypeFnsSym);
 #else
@@ -2034,13 +2075,13 @@ void CNetworkingModule::ServerActivate(edict_t* pEdictList, int edictCount, int 
 	{
 		SendTable *sendTable = serverclass->m_pTable;
 		auto serverClassCache = new ServerClassCache();
-		if (sendTable == playerSendTable) 
+		if (sendTable == playerSendTable)
 			player_class_cache = serverClassCache;
 
 		// Reuse unused variable
 		sendTable->m_pPrecalc->m_pDTITable = (CDTISendTable*)serverClassCache;
 		int propcount = sendTable->m_pPrecalc->m_Props.Count();
-				
+
 		CPropMapStack pmStack( sendTable->m_pPrecalc, sendproxies );
 		serverClassCache->prop_offsets = new unsigned short[propcount];
 		pmStack.Init();
@@ -2056,7 +2097,7 @@ void CNetworkingModule::ServerActivate(edict_t* pEdictList, int edictCount, int 
 			serverClassCache->prop_propproxy_first[i] = INVALID_PROP_INDEX;
 
 		for (int iToProp = 0; iToProp < sendTable->m_pPrecalc->m_Props.Count(); iToProp++)
-		{ 
+		{
 			const SendProp *pProp = sendTable->m_pPrecalc->m_Props[iToProp];
 
 			pmStack.SeekToProp( iToProp );
@@ -2069,7 +2110,7 @@ void CNetworkingModule::ServerActivate(edict_t* pEdictList, int edictCount, int 
 			if ((intptr_t)pmStack.GetCurStructBase() != 0)
 			{
 				int offset = pProp->GetOffset() + (intptr_t)pmStack.GetCurStructBase() - 1;
-						
+
 				int elementCount = 1;
 				int elementStride = 0;
 				int propIdToUse = iToProp;
@@ -2106,7 +2147,7 @@ void CNetworkingModule::ServerActivate(edict_t* pEdictList, int edictCount, int 
 				}
 			} else {
 				auto &datatableSpecial = serverClassCache->datatable_special[sendTable->m_pPrecalc->m_DatatableProps[pmStack.m_pIsPointerModifyingProxy[sendTable->m_pPrecalc->m_PropProxyIndices[iToProp]]->m_iDatatableProp]];
-						
+
 				datatableSpecial.propIndexes.push_back(iToProp);
 				datatableSpecial.baseOffset = pmStack.m_iBaseOffset[sendTable->m_pPrecalc->m_PropProxyIndices[iToProp]];
 
@@ -2232,7 +2273,6 @@ void WriteSendProp(SendProp* pProp, int nIndex, int nIndent, FileHandle_t pHandl
 
 	std::string pDataTableName = "Inherited: ";
 	pDataTableName.append((pProp->GetType() == SendPropType::DPT_DataTable && pProp->GetDataTable()) ? pProp->GetDataTable()->GetName() : "NONE");
-	
 
 	if (pProp->GetDataTable())
 		WriteSendTable(pProp->GetDataTable(), pWrittenTables);
@@ -2302,7 +2342,7 @@ static void WriteSendTable(SendTable* pTable, FileHandle_t pHandle, unordered_se
 {
 	for (int i = 0; i < pTable->GetNumProps(); ++i) {
 		SendProp* pProp = pTable->GetProp(i);
-		
+
 		WriteSendProp(pProp, i, 0, pHandle, pWrittenTables);
 
 		g_pFullFileSystem->Write(&strNewLine, 1, pHandle);
@@ -2333,7 +2373,7 @@ void WriteSendTable(SendTable* pTable, unordered_set<SendTable*>& pWrittenTables
 
 	for (int i = 0; i < pTable->GetNumProps(); ++i) {
 		SendProp* pProp = pTable->GetProp(i);
-		
+
 		WriteSendProp(pProp, i, 0, pHandle, pWrittenTables);
 
 		g_pFullFileSystem->Write(&strNewLine, 1, pHandle);
