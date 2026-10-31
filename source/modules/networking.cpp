@@ -497,7 +497,7 @@ static ConVar networking_fastcharactertransmit("holylib_networking_fastcharacter
 
 // Areaportal brushes can extend beyond a door's collision bounds. Keep door
 // entities out of the area-filtered cache and let the regular PVS test decide.
-static bool IsDoorLikeEntity(const CBaseEntity* pEntity)
+static bool IsDoorLikeEntity(CBaseEntity* pEntity)
 {
 	const char* pClassname = pEntity ? pEntity->GetClassname() : nullptr;
 	if (!pClassname)
