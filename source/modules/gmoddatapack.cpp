@@ -1060,6 +1060,78 @@ static std::string RequoteMinifyString(const std::string& source, char newQuote)
 	return result;
 }
 
+// Long-bracket strings are useful for source readability, but for short,
+// single-line payloads ordinary quotes are smaller. Only convert when the
+// payload has no line endings/control bytes, so both its value and line map
+// remain unchanged.
+static bool TryShortenLongString(const std::string& source, std::string& output)
+{
+	if (source.empty() || source[0] != '[')
+		return false;
+
+	size_t contentStart = 0;
+	size_t equals = 0;
+	if (!GetLongBracketOpen(source, 0, contentStart, equals))
+		return false;
+
+	const size_t closeLength = equals + 2;
+	if (source.size() < contentStart + closeLength)
+		return false;
+
+	const size_t contentEnd = source.size() - closeLength;
+	if (contentEnd < contentStart)
+		return false;
+
+	// Verify that the token ends with the matching long-bracket delimiter.
+	if (source[contentEnd] != ']')
+		return false;
+	for (size_t i = 0; i < equals; ++i)
+		if (source[contentEnd + 1 + i] != '=')
+			return false;
+	if (source[contentEnd + 1 + equals] != ']')
+		return false;
+
+	// Lua discards one initial newline in a long string. Converting such a
+	// string would require special handling and could alter line accounting.
+	if (contentStart < contentEnd && (source[contentStart] == '\n' || source[contentStart] == '\r'))
+		return false;
+
+	std::string best;
+	for (char quote : { '\'', '"' })
+	{
+		std::string candidate;
+		candidate.reserve(contentEnd - contentStart + 2);
+		candidate.push_back(quote);
+		bool safe = true;
+
+		for (size_t i = contentStart; i < contentEnd; ++i)
+		{
+			const unsigned char c = (unsigned char)source[i];
+			if (c < 0x20 || c == 0x7f || c == '\n' || c == '\r')
+			{
+				safe = false;
+				break;
+			}
+			if (c == '\\' || c == (unsigned char)quote)
+				candidate.push_back('\\');
+			candidate.push_back((char)c);
+		}
+
+		if (!safe)
+			return false;
+
+		candidate.push_back(quote);
+		if (best.empty() || candidate.size() < best.size())
+			best.swap(candidate);
+	}
+
+	if (best.size() >= source.size())
+		return false;
+
+	output.swap(best);
+	return true;
+}
+
 static bool IsMinifyHorizontalOrNewline(const MinifyToken& token)
 {
 	return token.kind == MinifyTokenKind::Whitespace || token.kind == MinifyTokenKind::Newline;
@@ -1114,8 +1186,50 @@ static void ApplyMinifySyntaxOptimizations(std::vector<MinifyToken>& tokens)
 		}
 	}
 
-	// A semicolon is redundant only when the next syntactic item is a line
-	// boundary, EOF, or 'end'. Semicolons separating statements are retained.
+	// Parentheses around a bare name do not change its value or return-count
+	// behavior (unlike parentheses around a function call). This also handles
+	// prefix forms such as (obj).field and (callback)().
+	for (size_t i = tokens.size(); i-- > 0;)
+	{
+		if (tokens[i].content != "(")
+			continue;
+
+		// Do not mistake a function-call argument list, e.g. foo(bar), for
+		// redundant grouping. Newlines are insignificant in Lua, so inspect
+		// the previous non-whitespace token as well.
+		size_t previous = i;
+		while (previous > 0)
+		{
+			--previous;
+			if (!tokens[previous].content.empty() && !IsMinifyHorizontalOrNewline(tokens[previous]))
+				break;
+		}
+		if (previous < i)
+		{
+			const MinifyToken& prev = tokens[previous];
+			if ((prev.kind == MinifyTokenKind::Identifier && prev.content != "return" &&
+				 prev.content != "not" && prev.content != "and" && prev.content != "or" &&
+				 prev.content != "until" && prev.content != "if" && prev.content != "while") ||
+				prev.content == ")" || prev.content == "]" || prev.content == "}" ||
+				prev.kind == MinifyTokenKind::Number || prev.kind == MinifyTokenKind::QuotedString ||
+				prev.kind == MinifyTokenKind::LongString)
+				continue;
+		}
+
+		size_t value = NextMinifySignificant(tokens, i + 1);
+		if (value >= tokens.size() || tokens[value].kind != MinifyTokenKind::Identifier)
+			continue;
+
+		size_t close = NextMinifySignificant(tokens, value + 1);
+		if (close < tokens.size() && tokens[close].content == ")")
+		{
+			tokens[i].content.clear();
+			tokens[close].content.clear();
+		}
+	}
+
+	// A semicolon is redundant at a line boundary, EOF, or a block delimiter.
+	// Semicolons separating two potentially connected statements are retained.
 	for (size_t i = 0; i < tokens.size(); ++i)
 	{
 		if (tokens[i].content != ";")
@@ -1127,7 +1241,9 @@ static void ApplyMinifySyntaxOptimizations(std::vector<MinifyToken>& tokens)
 			++next;
 
 		if (next >= tokens.size() || tokens[next].kind == MinifyTokenKind::Newline ||
-			(tokens[next].kind == MinifyTokenKind::Identifier && tokens[next].content == "end"))
+			(tokens[next].kind == MinifyTokenKind::Identifier &&
+				(tokens[next].content == "end" || tokens[next].content == "else" ||
+				 tokens[next].content == "elseif" || tokens[next].content == "until")))
 			tokens[i].content.clear();
 	}
 
@@ -1136,13 +1252,22 @@ static void ApplyMinifySyntaxOptimizations(std::vector<MinifyToken>& tokens)
 	// all other Lua escapes (including \z, decimal and hexadecimal escapes) stay intact.
 	for (MinifyToken& token : tokens)
 	{
-		if (token.kind != MinifyTokenKind::QuotedString || token.content.size() < 2)
-			continue;
-
-		const char alternative = token.content[0] == '\'' ? '"' : '\'';
-		std::string candidate = RequoteMinifyString(token.content, alternative);
-		if (candidate.size() < token.content.size())
-			token.content.swap(candidate);
+		if (token.kind == MinifyTokenKind::QuotedString && token.content.size() >= 2)
+		{
+			const char alternative = token.content[0] == '\'' ? '"' : '\'';
+			std::string candidate = RequoteMinifyString(token.content, alternative);
+			if (candidate.size() < token.content.size())
+				token.content.swap(candidate);
+		}
+		else if (token.kind == MinifyTokenKind::LongString)
+		{
+			std::string candidate;
+			if (TryShortenLongString(token.content, candidate))
+			{
+				token.content.swap(candidate);
+				token.kind = MinifyTokenKind::QuotedString;
+			}
+		}
 	}
 }
 
@@ -1209,8 +1334,9 @@ static std::string MinifyGLua(const std::string& source)
 			continue;
 		}
 
-		if (previous && previous->kind != MinifyTokenKind::Comment &&
-			token.kind != MinifyTokenKind::Comment && NeedsMinifySeparator(*previous, token))
+		// A comment can begin with an operator byte (notably "--"). Keep a
+		// separator when concatenation would swallow the preceding operator.
+		if (previous && NeedsMinifySeparator(*previous, token))
 			output.push_back(' ');
 
 		output += token.content;
