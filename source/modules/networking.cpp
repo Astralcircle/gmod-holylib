@@ -821,32 +821,36 @@ struct EntityTransmitCache // Well.... Still kinda acts like a tick-based cache,
 			return;
 		}
 
-		// Use world-space bounds so entity rotation is represented correctly.
-		Vector worldMins;
-		Vector worldMaxs;
-		pCollision->WorldSpaceAABB(&worldMins, &worldMaxs);
+		// Transform the eight local collision-bound corners individually.
+		// WorldSpaceAABB() is intentionally avoided: in this SDK configuration it
+		// references CollisionAABBToWorldAABB(), which is not exported/linked.
+		const Vector& mins = GetCollisionPropertyMins(pCollision);
+		const Vector& maxs = GetCollisionPropertyMaxs(pCollision);
 
-		Vector center;
-		VectorLerp(worldMins, worldMaxs, 0.5f, center);
+		Vector localCenter;
+		VectorLerp(mins, maxs, 0.5f, localCenter);
 
-		// If the sampled bounds touch multiple areas, avoid area culling.
+		// If the transformed bounds touch multiple areas, avoid area culling.
 		// This is conservative: false positives cost a PVS check, false negatives hide entities.
 		int firstArea = 0;
 		for (int i = 0; i < 9; ++i)
 		{
-			Vector point;
+			Vector localPoint;
 			if (i == 8)
 			{
-				point = center;
+				localPoint = localCenter;
 			}
 			else
 			{
-				point.x = (i & 1) ? worldMaxs.x : worldMins.x;
-				point.y = (i & 2) ? worldMaxs.y : worldMins.y;
-				point.z = (i & 4) ? worldMaxs.z : worldMins.z;
+				localPoint.x = (i & 1) ? maxs.x : mins.x;
+				localPoint.y = (i & 2) ? maxs.y : mins.y;
+				localPoint.z = (i & 4) ? maxs.z : mins.z;
 			}
 
-			const int nArea = Util::engineserver->GetArea(point);
+			Vector worldPoint;
+			pCollision->CollisionToWorldSpace(localPoint, &worldPoint);
+
+			const int nArea = Util::engineserver->GetArea(worldPoint);
 			if (nArea <= 0 || nArea >= MAX_MAP_AREAS)
 			{
 				AddPVSEntityFallback(pEntity);
