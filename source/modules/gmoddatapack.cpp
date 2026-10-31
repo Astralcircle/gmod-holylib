@@ -3,6 +3,7 @@
 #include "module.h"
 #include "lua.h"
 #include <sstream>
+#include <cstring>
 #include "eiface.h"
 #include "sourcesdk/GModDataPack.h"
 #include "sourcesdk/iluashared.h"
@@ -729,6 +730,500 @@ static void RemoveClientScoped(size_t start, size_t j, std::vector<Token> &token
 		RemoveScoped(end, tokens, TokenType::TK_ELSEIF, hasLineBreaks, hasElseIf);
 }
 
+// A second, deliberately small lexer is used only for output minification.
+// It does not replace the public tokenizer (or the Lua hook token format), so
+// existing token IDs and SERVER/CLIENT processing remain unchanged.
+enum class MinifyTokenKind : unsigned char
+{
+	Whitespace,
+	Newline,
+	Identifier,
+	Number,
+	QuotedString,
+	LongString,
+	Comment,
+	Symbol
+};
+
+struct MinifyToken
+{
+	MinifyTokenKind kind;
+	std::string content;
+};
+
+static inline bool IsMinifyIdentifierStart(unsigned char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c >= 0x80;
+}
+
+static inline bool IsMinifyIdentifierChar(unsigned char c)
+{
+	return IsMinifyIdentifierStart(c) || (c >= '0' && c <= '9');
+}
+
+static inline bool IsMinifyDigit(unsigned char c)
+{
+	return c >= '0' && c <= '9';
+}
+
+static inline bool IsMinifyHexDigit(unsigned char c)
+{
+	return IsMinifyDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+static bool GetLongBracketOpen(const std::string& source, size_t start, size_t& contentStart, size_t& equals)
+{
+	if (start >= source.size() || source[start] != '[')
+		return false;
+
+	size_t pos = start + 1;
+	while (pos < source.size() && source[pos] == '=')
+		++pos;
+
+	if (pos >= source.size() || source[pos] != '[')
+		return false;
+
+	equals = pos - start - 1;
+	contentStart = pos + 1;
+	return true;
+}
+
+static size_t FindLongBracketClose(const std::string& source, size_t start, size_t equals)
+{
+	for (size_t i = start; i < source.size(); ++i)
+	{
+		if (source[i] != ']')
+			continue;
+
+		size_t pos = i + 1;
+		size_t count = 0;
+		while (pos < source.size() && source[pos] == '=' && count <= equals)
+		{
+			++pos;
+			++count;
+		}
+
+		if (count == equals && pos < source.size() && source[pos] == ']')
+			return pos + 1;
+	}
+
+	return source.size();
+}
+
+static size_t ConsumeMinifyNumber(const std::string& source, size_t start)
+{
+	size_t pos = start;
+	if (pos + 1 < source.size() && source[pos] == '0' && (source[pos + 1] == 'x' || source[pos + 1] == 'X'))
+	{
+		pos += 2;
+		while (pos < source.size() && IsMinifyHexDigit((unsigned char)source[pos]))
+			++pos;
+
+		if (pos < source.size() && source[pos] == '.' && !(pos + 1 < source.size() && source[pos + 1] == '.'))
+		{
+			++pos;
+			while (pos < source.size() && IsMinifyHexDigit((unsigned char)source[pos]))
+				++pos;
+		}
+
+		if (pos < source.size() && (source[pos] == 'p' || source[pos] == 'P'))
+		{
+			++pos;
+			if (pos < source.size() && (source[pos] == '+' || source[pos] == '-'))
+				++pos;
+			while (pos < source.size() && IsMinifyDigit((unsigned char)source[pos]))
+				++pos;
+		}
+		return pos;
+	}
+
+	if (source[pos] == '.')
+		++pos;
+	while (pos < source.size() && IsMinifyDigit((unsigned char)source[pos]))
+		++pos;
+
+	if (pos < source.size() && source[pos] == '.' && !(pos + 1 < source.size() && source[pos + 1] == '.'))
+	{
+		++pos;
+		while (pos < source.size() && IsMinifyDigit((unsigned char)source[pos]))
+			++pos;
+	}
+
+	if (pos < source.size() && (source[pos] == 'e' || source[pos] == 'E'))
+	{
+		size_t exponent = pos + 1;
+		if (exponent < source.size() && (source[exponent] == '+' || source[exponent] == '-'))
+			++exponent;
+		size_t digits = exponent;
+		while (exponent < source.size() && IsMinifyDigit((unsigned char)source[exponent]))
+			++exponent;
+		if (exponent > digits)
+			pos = exponent;
+	}
+
+	return pos;
+}
+
+static std::vector<MinifyToken> TokenizeForMinification(const std::string& source)
+{
+	std::vector<MinifyToken> tokens;
+	size_t i = 0;
+	while (i < source.size())
+	{
+		const unsigned char c = (unsigned char)source[i];
+		const size_t start = i;
+
+		if (c == '\r')
+		{
+			if (i + 1 < source.size() && source[i + 1] == '\n')
+			{
+				tokens.push_back({MinifyTokenKind::Newline, "\r\n"});
+				i += 2;
+			}
+			else
+			{
+				tokens.push_back({MinifyTokenKind::Newline, "\r"});
+				++i;
+			}
+			continue;
+		}
+
+		if (c == '\n')
+		{
+			tokens.push_back({MinifyTokenKind::Newline, "\n"});
+			++i;
+			continue;
+		}
+
+		if (c == ' ' || c == '\t' || c == '\f' || c == '\v')
+		{
+			while (i < source.size() && (source[i] == ' ' || source[i] == '\t' || source[i] == '\f' || source[i] == '\v'))
+				++i;
+			tokens.push_back({MinifyTokenKind::Whitespace, source.substr(start, i - start)});
+			continue;
+		}
+
+		// Lua comments, plus the // and /* */ forms already recognized by the
+		// existing tokenizer in this module.
+		if (i + 1 < source.size() && source[i] == '-' && source[i + 1] == '-')
+		{
+			size_t contentStart = 0;
+			size_t equals = 0;
+			if (i + 2 < source.size() && GetLongBracketOpen(source, i + 2, contentStart, equals))
+				i = FindLongBracketClose(source, contentStart, equals);
+			else
+			{
+				i += 2;
+				while (i < source.size() && source[i] != '\n' && source[i] != '\r')
+					++i;
+			}
+			tokens.push_back({MinifyTokenKind::Comment, source.substr(start, i - start)});
+			continue;
+		}
+
+		if (i + 1 < source.size() && source[i] == '/' && (source[i + 1] == '/' || source[i + 1] == '*'))
+		{
+			if (source[i + 1] == '/')
+			{
+				i += 2;
+				while (i < source.size() && source[i] != '\n' && source[i] != '\r')
+					++i;
+			}
+			else
+			{
+				i += 2;
+				while (i + 1 < source.size() && !(source[i] == '*' && source[i + 1] == '/'))
+					++i;
+				if (i + 1 < source.size())
+					i += 2;
+				else
+					i = source.size();
+			}
+			tokens.push_back({MinifyTokenKind::Comment, source.substr(start, i - start)});
+			continue;
+		}
+
+		if (c == '\'' || c == '"')
+		{
+			const char quote = (char)c;
+			++i;
+			while (i < source.size())
+			{
+				if (source[i] == '\\')
+				{
+					i += (i + 1 < source.size()) ? 2 : 1;
+					continue;
+				}
+				if (source[i++] == quote)
+					break;
+			}
+			tokens.push_back({MinifyTokenKind::QuotedString, source.substr(start, i - start)});
+			continue;
+		}
+
+		if (c == '[')
+		{
+			size_t contentStart = 0;
+			size_t equals = 0;
+			if (GetLongBracketOpen(source, i, contentStart, equals))
+			{
+				i = FindLongBracketClose(source, contentStart, equals);
+				tokens.push_back({MinifyTokenKind::LongString, source.substr(start, i - start)});
+				continue;
+			}
+		}
+
+		if (IsMinifyIdentifierStart(c))
+		{
+			++i;
+			while (i < source.size() && IsMinifyIdentifierChar((unsigned char)source[i]))
+				++i;
+			tokens.push_back({MinifyTokenKind::Identifier, source.substr(start, i - start)});
+			continue;
+		}
+
+		if (IsMinifyDigit(c) || (c == '.' && i + 1 < source.size() && IsMinifyDigit((unsigned char)source[i + 1])))
+		{
+			i = ConsumeMinifyNumber(source, i);
+			tokens.push_back({MinifyTokenKind::Number, source.substr(start, i - start)});
+			continue;
+		}
+
+		// Longest-match punctuation/operators. Unknown characters are retained
+		// as one-byte symbols rather than discarded or interpreted.
+		static const char* s_operators[] = {
+			"...", "..", "==", "~=", "!=", "<=", ">=", "&&", "||", "::"
+		};
+		bool matched = false;
+		for (const char* op : s_operators)
+		{
+			const size_t length = std::strlen(op);
+			if (i + length <= source.size() && source.compare(i, length, op) == 0)
+			{
+				i += length;
+				tokens.push_back({MinifyTokenKind::Symbol, source.substr(start, length)});
+				matched = true;
+				break;
+			}
+		}
+		if (matched)
+			continue;
+
+		++i;
+		tokens.push_back({MinifyTokenKind::Symbol, source.substr(start, 1)});
+	}
+
+	return tokens;
+}
+
+static std::string RequoteMinifyString(const std::string& source, char newQuote)
+{
+	if (source.size() < 2 || (source[0] != '\'' && source[0] != '"') || source[source.size() - 1] != source[0])
+		return source;
+
+	const char oldQuote = source[0];
+	if (oldQuote == newQuote)
+		return source;
+
+	std::string result;
+	result.reserve(source.size());
+	result.push_back(newQuote);
+
+	size_t i = 1;
+	const size_t end = source.size() - 1;
+	while (i < end)
+	{
+		size_t slashCount = 0;
+		while (i < end && source[i] == '\\')
+		{
+			++slashCount;
+			++i;
+		}
+
+		if (i >= end)
+		{
+			result.append(slashCount, '\\');
+			break;
+		}
+
+		const char c = source[i++];
+		if (c == oldQuote && (slashCount & 1))
+			--slashCount; // An escaped old delimiter becomes an ordinary character.
+		else if (c == newQuote && !(slashCount & 1))
+			++slashCount; // Escape a formerly-unescaped occurrence of the new delimiter.
+
+		result.append(slashCount, '\\');
+		result.push_back(c);
+	}
+
+	result.push_back(newQuote);
+	return result;
+}
+
+static bool IsMinifyHorizontalOrNewline(const MinifyToken& token)
+{
+	return token.kind == MinifyTokenKind::Whitespace || token.kind == MinifyTokenKind::Newline;
+}
+
+static size_t NextMinifySignificant(const std::vector<MinifyToken>& tokens, size_t start)
+{
+	while (start < tokens.size() && (tokens[start].content.empty() || IsMinifyHorizontalOrNewline(tokens[start])))
+		++start;
+	return start;
+}
+
+static void ApplyMinifySyntaxOptimizations(std::vector<MinifyToken>& tokens)
+{
+// Keep standard Lua logical operators unchanged; the optional GLua C-style aliases are intentionally not enabled.
+
+	// Remove only the one outer pair around a complete if/while condition.
+	// This never touches parentheses in return expressions or subexpressions.
+	for (size_t i = 0; i < tokens.size(); ++i)
+	{
+		if (tokens[i].kind != MinifyTokenKind::Identifier ||
+			(tokens[i].content != "if" && tokens[i].content != "while"))
+			continue;
+
+		size_t open = NextMinifySignificant(tokens, i + 1);
+		if (open >= tokens.size() || tokens[open].content != "(")
+			continue;
+
+		int depth = 0;
+		size_t close = tokens.size();
+		for (size_t j = open; j < tokens.size(); ++j)
+		{
+			if (tokens[j].kind == MinifyTokenKind::Comment)
+				continue;
+			if (tokens[j].content == "(")
+				++depth;
+			else if (tokens[j].content == ")" && --depth == 0)
+			{
+				close = j;
+				break;
+			}
+		}
+		if (close >= tokens.size())
+			continue;
+
+		size_t after = NextMinifySignificant(tokens, close + 1);
+		const char* expected = tokens[i].content == "if" ? "then" : "do";
+		if (after < tokens.size() && tokens[after].kind == MinifyTokenKind::Identifier && tokens[after].content == expected)
+		{
+			tokens[open].content.clear();
+			tokens[close].content.clear();
+		}
+	}
+
+	// A semicolon is redundant only when the next syntactic item is a line
+	// boundary, EOF, or 'end'. Semicolons separating statements are retained.
+	for (size_t i = 0; i < tokens.size(); ++i)
+	{
+		if (tokens[i].content != ";")
+			continue;
+
+		size_t next = i + 1;
+		while (next < tokens.size() && (tokens[next].content.empty() ||
+			tokens[next].kind == MinifyTokenKind::Whitespace || tokens[next].kind == MinifyTokenKind::Comment))
+			++next;
+
+		if (next >= tokens.size() || tokens[next].kind == MinifyTokenKind::Newline ||
+			(tokens[next].kind == MinifyTokenKind::Identifier && tokens[next].content == "end"))
+			tokens[i].content.clear();
+	}
+
+	// Select the cheaper quote style while preserving the exact string value.
+	// The conversion adjusts only the slash parity directly before quote bytes;
+	// all other Lua escapes (including \z, decimal and hexadecimal escapes) stay intact.
+	for (MinifyToken& token : tokens)
+	{
+		if (token.kind != MinifyTokenKind::QuotedString || token.content.size() < 2)
+			continue;
+
+		const char alternative = token.content[0] == '\'' ? '"' : '\'';
+		std::string candidate = RequoteMinifyString(token.content, alternative);
+		if (candidate.size() < token.content.size())
+			token.content.swap(candidate);
+	}
+}
+
+static bool IsMinifyWordByte(unsigned char c)
+{
+	return IsMinifyIdentifierChar(c);
+}
+
+static bool NeedsMinifySeparator(const MinifyToken& previous, const MinifyToken& current)
+{
+	if (previous.content.empty() || current.content.empty())
+		return false;
+
+	const unsigned char left = (unsigned char)previous.content[previous.content.size() - 1];
+	const unsigned char right = (unsigned char)current.content[0];
+
+	if (IsMinifyWordByte(left) && IsMinifyWordByte(right))
+		return true;
+
+	// Prevent a decimal numeral from absorbing a neighboring dot (or .digit).
+	if ((IsMinifyDigit(left) && right == '.') || (left == '.' && IsMinifyDigit(right)))
+		return true;
+
+	// Prevent accidental comments, long-bracket strings, and compound operators.
+	if ((left == '-' && right == '-') || (left == '/' && (right == '/' || right == '*')) ||
+		(left == '[' && right == '[') || (left == ':' && right == ':') ||
+		(left == '.' && right == '.') ||
+		(previous.content.size() >= 2 && previous.content.compare(previous.content.size() - 2, 2, "..") == 0 && right == '.') ||
+		(current.content.size() >= 2 && current.content.compare(0, 2, "..") == 0 && left == '.'))
+		return true;
+
+	const std::string pair = std::string(1, (char)left) + (char)right;
+	static const char* s_compound[] = {"==", "~=", "!=", "<=", ">=", "&&", "||", "++", "**", "<<", ">>", "->"};
+	for (const char* op : s_compound)
+		if (pair == op)
+			return true;
+
+	return false;
+}
+
+static std::string MinifyGLua(const std::string& source)
+{
+	std::vector<MinifyToken> tokens = TokenizeForMinification(source);
+	ApplyMinifySyntaxOptimizations(tokens);
+
+	std::string output;
+	output.reserve(source.size());
+	const MinifyToken* previous = nullptr;
+
+	for (const MinifyToken& token : tokens)
+	{
+		if (token.content.empty())
+			continue;
+
+		if (token.kind == MinifyTokenKind::Whitespace)
+		{
+			continue;
+		}
+
+		if (token.kind == MinifyTokenKind::Newline)
+		{
+			output += token.content;
+			previous = nullptr;
+			continue;
+		}
+
+		if (previous && previous->kind != MinifyTokenKind::Comment &&
+			token.kind != MinifyTokenKind::Comment && NeedsMinifySeparator(*previous, token))
+			output.push_back(' ');
+
+		output += token.content;
+		if (token.kind == MinifyTokenKind::Comment)
+			previous = nullptr; // A comment itself separates the surrounding tokens.
+		else
+			previous = &token;
+	}
+
+	return output;
+}
+
+
 std::string ProcessTokens(std::vector<Token> &tokens, bool bRemoveServerCode, bool bRemoveComments)
 {
 	std::stringstream ss;
@@ -794,25 +1289,6 @@ std::string ProcessTokens(std::vector<Token> &tokens, bool bRemoveServerCode, bo
 			lineStart = tokens.size()+1;
 	}
 
-	// Lets also turn 4 spaces to a tab since it should save some size too (no one reads the networked client scripts anyways)
-	size_t spaceRun = 0;
-	for (size_t i=0; i<tokens.size(); ++i)
-	{
-		if (tokens[i].content != " ")
-		{
-			spaceRun = 0;
-			continue;
-		}
-
-		if (++spaceRun < 4)
-			continue;
-
-		tokens[i-3].content = "\t";
-		for (size_t j=i-2; j<=i; ++j)
-			tokens[j].content = "";
-
-		spaceRun = 0;
-	}
 
 	// I dislike this way a bit but it allows us to patch tokens from the past :)
 	// And we can nuke empty lines at the end
@@ -835,7 +1311,7 @@ std::string ProcessTokens(std::vector<Token> &tokens, bool bRemoveServerCode, bo
 		ss << tok.content;
 	}
 
-	std::string pCode = ss.str();
+	std::string pCode = MinifyGLua(ss.str());
 	bool bHasCode = false;
 	for (char c : pCode)
 	{
