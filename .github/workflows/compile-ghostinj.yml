@@ -1,6 +1,6 @@
 name: Build GhostInj
 
-on: 
+on:
   push:
     paths:
       - '.github/workflows/compile-ghostinj.yml'
@@ -14,7 +14,7 @@ on:
 jobs:
   build_ghostinj:
     name: "Build GhostInj"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_PATH: "ghostinj-dll/"
       PROJECT_NAME: "ghostinj"

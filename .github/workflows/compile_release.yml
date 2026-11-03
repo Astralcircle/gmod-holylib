@@ -1,11 +1,11 @@
 name: Build Release Build
 
-on: 
+on:
   workflow_dispatch:
 
 jobs:
   build_holylib:
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_NAME: "holylib"
       BUILD_64x: "true"
@@ -41,7 +41,7 @@ jobs:
       BUILD_WINDOWS_DEDICATED: "true"
 
   build_ghostinj:
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_PATH: "ghostinj-dll/"
       PROJECT_NAME: "ghostinj"

@@ -1,6 +1,6 @@
 name: Build Plugin
 
-on: 
+on:
   push:
     paths:
       - '.github/workflows/compile.yml'
@@ -11,7 +11,7 @@ on:
       - '!source/public/README.md'
   pull_request:
     branches-ignore:
-      - 'new_filesystem'  
+      - 'new_filesystem'
   workflow_dispatch:
 
 env:
@@ -20,7 +20,7 @@ env:
 jobs:
   build_plugin_windows:
     name: "Build Plugin (Main branch)"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_NAME: "holylib"
       BUILD_64x: "true"
@@ -39,7 +39,7 @@ jobs:
 
   build_plugin_windows_dedicated:
     name: "Build Plugin (Dedicated)"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_NAME: "holylib"
       BUILD_64x: "true"
@@ -59,7 +59,7 @@ jobs:
 
   build_plugin_linux:
     name: "Build Plugin"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_NAME: "holylib"
       BUILD_64x: "true"
@@ -77,7 +77,7 @@ jobs:
   build_testingarea:
     name: "Build 32x (Testing Area - Dev)"
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     secrets:
       PTERODACTYL_KEY: ${{ secrets.PTERODACTYL_KEY }}
       PTERODACTYL_SERVER: ${{ secrets.PTERODACTYL_SERVER }}
@@ -102,7 +102,7 @@ jobs:
   build_testingarea_dev2: # Could make this use the already created artifact but I'm too lazy rn
     name: "Build 32x (Testing Area - Public)"
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     secrets:
       PTERODACTYL_KEY: ${{ secrets.PTERODACTYL_KEY }}
       PTERODACTYL_SERVER: ${{ secrets.PTERODACTYL_SERVER_PUBLIC }}
@@ -127,7 +127,7 @@ jobs:
   build_testingarea_64x:
     name: "Build 64x (Testing Area - 64x)"
     if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     secrets:
       PTERODACTYL_KEY: ${{ secrets.PTERODACTYL_KEY }}
       PTERODACTYL_SERVER: ${{ secrets.PTERODACTYL_SERVER_X64 }}
@@ -152,7 +152,7 @@ jobs:
 
   build_ghostinj:
     name: "Build GhostInj"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_PATH: "ghostinj-dll/"
       PROJECT_NAME: "ghostinj"
@@ -176,7 +176,7 @@ jobs:
     # Doing this paralle to the main builds gives us at minimim 1min time with ~34 runners available to run parallel
     # needs: build_plugin_linux
     name: "Build Stripped modules"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     strategy:
       fail-fast: false
       matrix:
@@ -778,7 +778,7 @@ jobs:
 
   build_exampledll_linux:
     name: "Build ExampleDLL"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_PATH: "example-module-dll/"
       PROJECT_NAME: "exampledll"

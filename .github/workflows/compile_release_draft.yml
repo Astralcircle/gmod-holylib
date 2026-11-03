@@ -1,12 +1,12 @@
-# ToDo: Update https://github.com/RaphaelIT7/gmod-common-module-base/blob/workflow/.github/workflows/compile-release.yml once I made up my mind how to handle win dedicated servers
+# ToDo: Update https://github.com/Astralcircle/gmod-common-module-base/blob/workflow/.github/workflows/compile-release.yml once I made up my mind how to handle win dedicated servers
 name: Build Release Draft
 
-on: 
+on:
   workflow_dispatch:
 
 jobs:
   build_holylib:
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_NAME: "holylib"
       BUILD_64x: "true"
@@ -42,7 +42,7 @@ jobs:
 
   build_plugin_windows_64x_main:
     name: "Build Plugin (64x - Main Branch)"
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_NAME: "holylib"
       BUILD_64x: "true"
@@ -61,7 +61,7 @@ jobs:
       UPLOAD_PDB: "true"
 
   build_ghostinj:
-    uses: RaphaelIT7/gmod-common-module-base/.github/workflows/compile.yml@workflow
+    uses: Astralcircle/gmod-common-module-base/.github/workflows/compile.yml@workflow
     with:
       PROJECT_PATH: "ghostinj-dll/"
       PROJECT_NAME: "ghostinj"
