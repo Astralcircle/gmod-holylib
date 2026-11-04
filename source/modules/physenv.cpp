@@ -603,7 +603,8 @@ class CLuaPhysicsObjectEvent : public IPhysicsObjectEvent
 public:
 	void ObjectWake(IPhysicsObject* obj)
 	{
-		g_Collisions->ObjectWake(obj);
+		if (g_Collisions)
+			g_Collisions->ObjectWake(obj);
 
 		if (m_iObjectWakeFunction == -1)
 			return;
@@ -615,7 +616,8 @@ public:
 
 	void ObjectSleep(IPhysicsObject* obj)
 	{
-		g_Collisions->ObjectSleep(obj);
+		if (g_Collisions)
+			g_Collisions->ObjectSleep(obj);
 
 		if (m_iObjectSleepFunction == -1)
 			return;
@@ -1140,6 +1142,9 @@ LUA_FUNCTION_STATIC(physenv_DestroyEnvironment)
 	{
 		for (int i = pEnvironment->GetObjects().Count(); --i >= 0; )
 		{
+			if (i >= pEnvironment->GetObjects().Count())
+				continue;
+
 			IPhysicsObject* pObject = pEnvironment->GetObjects()[i];
 			CBaseEntity* pEntity = (CBaseEntity*)pObject->GetGameData();
 			if (pEntity)
@@ -1733,6 +1738,8 @@ LUA_FUNCTION_STATIC(IPhysicsEnvironment_SetObjectEventHandler)
 	LUA->CheckType(2, GarrysMod::Lua::Type::Function);
 	LUA->CheckType(3, GarrysMod::Lua::Type::Function);
 
+	TryFetchingGCollisions();
+
 	LUA->Push(3);
 	LUA->Push(2);
 	if (pLuaEnv->pObjectEvent)
@@ -2322,20 +2329,18 @@ LUA_FUNCTION_STATIC(physcollide_CollideWrite)
 		LUA->ThrowError("Failed to get IPhysicsCollision!");
 
 	int iSize = g_pPhysCollide->CollideSize(pCollide);
-	char* pData = (char*)stackalloc(iSize);
-	g_pPhysCollide->CollideWrite(pData, pCollide, bSwap);
-	LUA->PushString(pData, iSize);
+	std::vector<char> pData(iSize);
+	g_pPhysCollide->CollideWrite(pData.data(), pCollide, bSwap);
+	LUA->PushString(pData.data(), iSize);
 	return 1;
 }
 
 LUA_FUNCTION_STATIC(physcollide_UnserializeCollide)
 {
-	Get_CPhysCollide(LUA, 1, true);
-
 	size_t iSize;
-	const char* pData = Lua::CheckLString(LUA, 2, &iSize);
+	const char* pData = Lua::CheckLString(LUA, 1, &iSize);
 
-	int index = LUA->CheckNumber(3);
+	int index = (int)LUA->CheckNumber(2);
 
 	if (!g_pPhysCollide)
 		LUA->ThrowError("Failed to get IPhysicsCollision!");
@@ -2704,6 +2709,18 @@ void CPhysEnvModule::LuaShutdown(GarrysMod::Lua::ILuaInterface* pLua)
 	}
 
 	Util::NukeTable(pLua, "physcollide");
+
+	for (auto& [pEnv, pLuaEnv] : g_pEnvironmentToLua)
+	{
+		if (!pLuaEnv->pObjectEvent || pLuaEnv->pLua != pLua)
+			continue;
+
+		if (g_Collisions && pLuaEnv->pEnvironment)
+			pLuaEnv->pEnvironment->SetObjectEventHandler(g_Collisions);
+
+		delete pLuaEnv->pObjectEvent;
+		pLuaEnv->pObjectEvent = nullptr;
+	}
 
 	DeleteAll_CPhysCollide(pLua);
 	DeleteAll_CPhysConvex(pLua);
