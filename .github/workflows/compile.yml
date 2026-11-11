@@ -34,7 +34,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "patch-7"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       BUILD_CACHE: "true"
       UPLOAD_PDB: "true"
 
@@ -54,7 +53,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       BUILD_CACHE: "true"
       UPLOAD_PDB: "true"
       BUILD_WINDOWS_DEDICATED: "true"
@@ -74,7 +72,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       BUILD_CACHE: "true"
 
   build_testingarea:
@@ -97,7 +94,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       PTERODACTYL_RESTART_SLEEPTIME: "0"
       PTERODACTYL_RESTART: "true"
       BUILD_CACHE: "true"
@@ -123,7 +119,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       PTERODACTYL_RESTART_SLEEPTIME: "0"
       PTERODACTYL_RESTART: "true"
       BUILD_CACHE: "true"
@@ -150,7 +145,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       PTERODACTYL_RESTART_SLEEPTIME: "0"
       PTERODACTYL_RESTART: "true"
       BUILD_CACHE: "true"
@@ -172,7 +166,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       BUILD_CACHE: "true"
 
   build_stripped_module:
@@ -229,7 +222,6 @@ jobs:
       SOURCESDK_MINIMAL_64XBRANCH: "x86-64-patch-3"
       GARRYSMOD_COMMON: "RaphaelIT7/garrysmod_common"
       GARRYSMOD_COMMON_BRANCH: "holylib"
-      DETOURING: "RaphaelIT7/detouring"
       ADDITIONAL_LINUX_32_SETUP: 'rm -rf source/ivp && cd source/modules/ && ls | grep -xvF ${{ matrix.module }}.cpp | xargs rm -f -- && cd ../../'
       ADDITIONAL_LINUX_64_SETUP: 'rm -rf source/ivp && cd source/modules/ && ls | grep -xvF ${{ matrix.module }}.cpp | xargs rm -f -- && cd ../../'
 
