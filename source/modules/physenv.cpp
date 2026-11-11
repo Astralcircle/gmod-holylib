@@ -164,7 +164,7 @@ public:
 	{
 		pCurrentSkipType = IVP_SkipType::IVP_None;
 	}
-	
+
 	bool ShouldSkip() IVPHolyLib_OVERRIDE
 	{
 		return ((int)pCurrentSkipType) > 0;
@@ -182,7 +182,7 @@ public:
 			Warning("Triggered recheck_ov_element while inside OnPhysLag call! This is unsafe. Skipping...\n");
 			return true;
 		}
-	
+
 		return false;
 	}
 };
@@ -366,7 +366,7 @@ static void hook_IVP_Mindist_simulate_time_event(GMODSDK::IVP_Mindist* mindist, 
 	if (g_pPhysEnvModule.InDebug() > 2)
 		Msg(PROJECT_NAME " - physenv: IVP_Mindist::simulate_time_event called! (%i)\n", (int)pCurrentSkipType);
 
-	
+
 	GMODSDK::IVP_Real_Object* pObjs[2] = {nullptr, nullptr};
 	if (func_IVP_Mindist_Base_get_objects)
 	{
@@ -457,18 +457,6 @@ static void hook_IVP_Mindist_Manager_recheck_ov_element(void* mindistManager, GM
 	g_pCurrentRecheckOVElement.pop_back();
 }
 
-static Detouring::Hook detour_IVP_Mindist_Minimize_Solver_p_minimize_PK;
-GMODSDK::IVP_MRC_TYPE hook_IVP_Mindist_Minimize_Solver_p_minimize_PK(void* _this, const GMODSDK::IVP_Compact_Edge* P, const GMODSDK::IVP_Compact_Edge* K, IVP_Cache_Ledge_Point* m_cache_P, IVP_Cache_Ledge_Point* m_cache_K)
-{
-	if (!P || !K || !m_cache_P || !m_cache_K)
-	{
-		DevMsg(PROJECT_NAME " - physenv: Invalid Edge(P - %p | K - %p | m_cache_P - %p | m_cache_K - %p)!\n", P, K, m_cache_P, m_cache_K);
-		// Returning IVP_MRC_ALREADY_CALCULATED or IVP_MRC_ILLEGAL would result in an engine errror!
-		return GMODSDK::IVP_MRC_TYPE::IVP_MRC_ENDLESS_LOOP;
-	}
-
-	return detour_IVP_Mindist_Minimize_Solver_p_minimize_PK.GetTrampoline<Symbols::IVP_Mindist_Minimize_Solver_p_minimize_PK>()(_this, P, K, m_cache_P, m_cache_K);
-}
 #endif
 
 bool g_pForceOriginalIVP = false;
@@ -780,7 +768,7 @@ struct ILuaPhysicsEnvironment
 #if PHYSENV_INCLUDEIVPFALLBACK
 	unordered_set<IPhysicsObject*> pObjects;
 #endif
-	
+
 	IPhysicsEnvironment* pEnvironment = nullptr;
 #if defined(SYSTEM_WINDOWS) && PHYSENV_INCLUDEIVPFALLBACK
 	std::unique_ptr<CPhysicsEnvironmentProxy> pEnvironmentProxy = nullptr;
@@ -864,7 +852,7 @@ static inline ILuaPhysicsEnvironment* GetPhysicsObjectLuaEnvironment(IPhysicsObj
 /*
  * BUG: The engine likes to use PhysDestroyObject which will call DestroyObject on the wrong environment now.
  * Solution: If it was called on the main Environment, we loop thru all environments until we find our object and delete it.
- * 
+ *
  * Real Solution: The real soulution would be to let the IPhysicsObject store it's environment and have a method ::GetEnvironment and use that inside PhysDestroyObject to delete it properly.
  *				It would most likely require one to edit the vphysics dll for a clean and proper solution.
  *				Inside the engine there most likely would also be a CPhysicsObject::SetEnvironment method that would need to be added and called at all points, were it uses m_objects.AddToTail()
@@ -1106,7 +1094,7 @@ LUA_FUNCTION_STATIC(physenv_CreateEnvironment)
 		//physenv->EnableConstraintNotify(true);
 
 		//physenv->SetObjectEventHandler(&g_Collisions);
-	
+
 		//pEnvironment->SetSimulationTimestep(gpGlobals->interval_per_tick);
 
 		ConVarRef gravity("sv_gravity");
@@ -1179,9 +1167,9 @@ LUA_FUNCTION_STATIC(physenv_GetAllEnvironments)
 		FOR_EACH_VEC(pPhys->m_envList, i)
 		{
 			Push_ILuaPhysicsEnvironment(LUA, RegisterPhysicsEnvironment(pPhys->m_envList[i]));
-			Lua::RawSetI(LUA, -2, ++idx);	
+			Lua::RawSetI(LUA, -2, ++idx);
 		}
-	
+
 	return 1;
 }
 
@@ -1789,7 +1777,7 @@ LUA_FUNCTION_STATIC(IPhysicsEnvironment_SetObjectEventHandler)
 }*/
 
 /*
- * ToDo: Move the code below somewhere else. 
+ * ToDo: Move the code below somewhere else.
  */
 
 #if ARCHITECTURE_IS_X86
@@ -1849,7 +1837,7 @@ IPhysicsObject *PhysCreateWorld_Shared( IPhysicsEnvironment* pEnvironment, CBase
 	params.pGameData = static_cast<void *>(pWorld);
 	params.pName = "world";
 
-	IPhysicsObject *pWorldPhysics = pEnvironment->CreatePolyObjectStatic( 
+	IPhysicsObject *pWorldPhysics = pEnvironment->CreatePolyObjectStatic(
 		pWorldCollide->solids[0], surfaceData, vec3_origin, vec3_angle, &params );
 
 	// hint - saves vphysics some work
@@ -1884,7 +1872,7 @@ IPhysicsObject *PhysCreateWorld_Shared( IPhysicsEnvironment* pEnvironment, CBase
 				continue;
 			}
 			// create this as part of the world
-			IPhysicsObject *pObject = pEnvironment->CreatePolyObjectStatic( pWorldCollide->solids[solid.index], 
+			IPhysicsObject *pObject = pEnvironment->CreatePolyObjectStatic( pWorldCollide->solids[solid.index],
 				surfaceData, vec3_origin, vec3_angle, &solid.params );
 
 			// invalid collision model or can't create, ignore
@@ -1914,7 +1902,7 @@ IPhysicsObject *PhysCreateWorld_Shared( IPhysicsEnvironment* pEnvironment, CBase
 				fluid.params.pGameData = static_cast<void *>(pWorld);
 				surfaceData = g_pPhysProps->GetSurfaceIndex( fluid.surfaceprop );
 				// create this as part of the world
-				IPhysicsObject *pWater = pEnvironment->CreatePolyObjectStatic( pWorldCollide->solids[fluid.index], 
+				IPhysicsObject *pWater = pEnvironment->CreatePolyObjectStatic( pWorldCollide->solids[fluid.index],
 					surfaceData, vec3_origin, vec3_angle, &solid.params );
 
 				pWater->SetCallbackFlags( pWater->GetCallbackFlags() | CALLBACK_NEVER_DELETED );
@@ -1962,7 +1950,7 @@ LUA_FUNCTION_STATIC(IPhysicsEnvironment_CreateWorldPhysics)
 	ILuaPhysicsEnvironment* pLuaEnv = Get_ILuaPhysicsEnvironment(LUA, 1, true);
 #endif
 	IPhysicsEnvironment* pEnvironment = GetPhysicsEnvironmentFromLua(LUA, 1, true);
-	
+
 #if ARCHITECTURE_IS_X86
 	Push_IPhysicsObject(LUA, PhysCreateWorld(pEnvironment, Util::GetCBaseEntityFromEdict(Util::engineserver->PEntityOfEntIndex(0))));
 
@@ -2046,7 +2034,7 @@ Default__IsValid(ICollisionQuery);
 LUA_FUNCTION_STATIC(ICollisionQuery_ConvexCount)
 {
 	ICollisionQuery* pQuery = Get_ICollisionQuery(LUA, 1, true);
-	
+
 	LUA->PushNumber(pQuery->ConvexCount());
 	return 1;
 }
@@ -2455,7 +2443,7 @@ LUA_FUNCTION_STATIC(physcollide_DestroyCollide)
 /*
  * BUG: In GMOD, this function checks the main IPhysicsEnvironment to see if the IPhysicsObject exists in it?
  * This causes all IPhysicsObject from other environments to be marked as invalid.
- * 
+ *
  * Gmod does this because it can't invalidate the userdata properly which means that calling a function like PhysObj:Wake could be called on a invalid pointer.
  * So they seem to have added this function as a workaround to check if the pointer Lua has is still valid.
  */
@@ -2681,7 +2669,7 @@ void CPhysEnvModule::LuaInit(GarrysMod::Lua::ILuaInterface* pLua, bool bServerIn
 		Util::AddFunc(pLua, physcollide_CollideSetMassCenter, "CollideSetMassCenter");
 		Util::AddFunc(pLua, physcollide_CollideSetOrthographicAreas, "CollideSetOrthographicAreas");
 		Util::AddFunc(pLua, physcollide_CollideSize, "CollideSize");
-		Util::AddFunc(pLua, physcollide_CollideSurfaceArea, "CollideSurfaceArea"); 
+		Util::AddFunc(pLua, physcollide_CollideSurfaceArea, "CollideSurfaceArea");
 		Util::AddFunc(pLua, physcollide_CollideVolume, "CollideVolume");
 		Util::AddFunc(pLua, physcollide_CollideWrite, "CollideWrite");
 		Util::AddFunc(pLua, physcollide_UnserializeCollide, "UnserializeCollide");
@@ -2909,12 +2897,6 @@ void CPhysEnvModule::InitDetour(bool bPreServer)
 			&detour_IVP_Mindist_Manager_recheck_ov_element, "IVP_Mindist_Manager::recheck_ov_element",
 			vphysics_loader.GetModule(), Symbols::IVP_Mindist_Manager_recheck_ov_elementSym,
 			(void*)hook_IVP_Mindist_Manager_recheck_ov_element, m_pID
-		);
-
-		Detour::Create(
-			&detour_IVP_Mindist_Minimize_Solver_p_minimize_PK, "IVP_Mindist_Minimize_Solver::p_minimize_PK",
-			vphysics_loader.GetModule(), Symbols::IVP_Mindist_Minimize_Solver_p_minimize_PKSym,
-			(void*)hook_IVP_Mindist_Minimize_Solver_p_minimize_PK, m_pID
 		);
 
 		func_IVP_Mindist_Base_get_objects = (Symbols::IVP_Mindist_Base_get_objects)Detour::GetFunction(vphysics_loader.GetModule(), Symbols::IVP_Mindist_Base_get_objectsSym);
