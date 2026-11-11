@@ -2,7 +2,6 @@
 
 #include "public/imodule.h"
 #include <vector>
-#include <mutex> // std::unique_lock is here
 #include <shared_mutex>
 #include <atomic>
 #include "unordered_stuff.h"
