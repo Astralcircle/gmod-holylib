@@ -126,7 +126,7 @@ bool CServerPlugin::Load(CreateInterfaceFn interfaceFactory, CreateInterfaceFn g
 	} else {
 		engine = InterfacePointers::VEngineServer();
 		g_pFullFileSystem = InterfacePointers::FileSystemServer();
-		g_pCVar = cvar = InterfacePointers::Cvar();
+		g_pCVar = InterfacePointers::Cvar();
 	}
 
 	IPlayerInfoManager* playerinfomanager = nullptr;
