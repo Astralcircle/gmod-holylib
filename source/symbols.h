@@ -169,6 +169,9 @@ namespace Symbols
 		This is because else we might call the loaded function from Gmod when in reality our luajit build has taken over which would cause a crash!
 	*/
 
+	using lua_pushtracablecclosure = void (*)(lua_State* L, void* info);
+	using lua_settracablecclosure = void (*)(lua_State* L, int idx, void* info);
+
 	using lua_rawseti = void (*)(lua_State* L, int index, int i);
 	extern const Symbol lua_rawsetiSym;
 
@@ -186,6 +189,9 @@ namespace Symbols
 
 	using lua_setfenv = int (*)(lua_State *L, int idx);
 	extern const Symbol lua_setfenvSym;
+
+	using lua_touserdata = void* (*)(lua_State *L, int idx);
+	extern const Symbol lua_touserdataSym;
 
 	using lua_type = int (*)(lua_State *L, int idx);
 	extern const Symbol lua_typeSym;
@@ -206,11 +212,17 @@ namespace Symbols
 	using lua_pcall = int (*)(lua_State *L, int nArgs, int nRets, int nErrorFunc);
 	extern const Symbol lua_pcallSym;
 
-	using lua_pushvfstring = const char* (*)(lua_State *L, const char* fmt, va_list argp);
-	extern const Symbol lua_pushvfstringSym;
+	using lua_cpcall = int (*)(lua_State *L, void* func, void* ud);
+	extern const Symbol lua_cpcallSym;
 
-	using lua_error = int (*)(lua_State *L);
-	extern const Symbol lua_errorSym;
+	using lua_insert = void (*)(lua_State *L, int idx);
+	extern const Symbol lua_insertSym;
+
+	using lua_toboolean = int (*)(lua_State *L, int idx);
+	extern const Symbol lua_tobooleanSym;
+
+	using lua_newuserdata = void* (*)(lua_State *L, size_t sz);
+	extern const Symbol lua_newuserdataSym;
 
 	extern const std::vector<Symbol> CGetSym;
 	extern const std::vector<Symbol> gEntListSym;

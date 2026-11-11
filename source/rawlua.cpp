@@ -52,19 +52,14 @@ lua_State* RawLua::MainState(lua_State* L)
     return mainthread(G(L));
 }
 
-GCtab* RawLua::TabNew(lua_State* L, uint32_t nArray, uint32_t nRec)
+Symbols::lj_tab_new RawLua::GetTabNewFunc()
 {
-	return lj_tab_new(L, nArray, nRec);
+	return &lj_tab_new;
 }
 
-void RawLua::GCBarrierF(global_State* g, void* pObject, void* pValue)
+Symbols::lj_gc_barrierf RawLua::GetGCBarrierF()
 {
-	lj_gc_barrierf(g, (GCobj*)pObject, (GCobj*)pValue);
-}
-
-void* RawLua::TabGet(lua_State* L, void* pTable, void* pKey)
-{
-	return (void*)lj_tab_get(L, (GCtab*)pTable, (cTValue*)pKey);
+	return (Symbols::lj_gc_barrierf)&lj_gc_barrierf;
 }
 
 TValue* RawLua::CopyTValue(lua_State* L, TValue* o)

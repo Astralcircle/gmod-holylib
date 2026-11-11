@@ -76,6 +76,8 @@ namespace Symbols
 
 	const Symbol lua_setfenvSym = Symbol::FromName("lua_setfenv");
 
+	const Symbol lua_touserdataSym = Symbol::FromName("lua_touserdata");
+
 	const Symbol lua_typeSym = Symbol::FromName("lua_type");
 
 	const Symbol lua_gcSym = Symbol::FromName("lua_gc");
@@ -88,9 +90,13 @@ namespace Symbols
 
 	const Symbol lua_pcallSym = Symbol::FromName("lua_pcall");
 
-	const Symbol lua_pushvfstringSym = Symbol::FromName("lua_pushvfstring");
+	const Symbol lua_cpcallSym = Symbol::FromName("lua_cpcall");
 
-	const Symbol lua_errorSym = Symbol::FromName("lua_error");
+	const Symbol lua_insertSym = Symbol::FromName("lua_insert");
+
+	const Symbol lua_tobooleanSym = Symbol::FromName("lua_toboolean");
+
+	const Symbol lua_newuserdataSym = Symbol::FromName("lua_newuserdata");
 
 	const std::vector<Symbol> CGetSym = { // 64x ToDo
 		Symbol::FromName("get"),
