@@ -122,8 +122,6 @@ namespace RawLua {
 	extern TValue* LuaBase(lua_State* L);
 	extern TValue* GlobalJITBase(lua_State* L);
 	extern lua_State* MainState(lua_State* L);
-	extern Symbols::lj_tab_new GetTabNewFunc();
-	extern Symbols::lj_gc_barrierf GetGCBarrierF();
 }
 
 struct LuaUserData;
@@ -1384,15 +1382,7 @@ struct LuaUserData {
 
 		lua_State* L = pLua->GetState();
 		GCRef& usertable = GetUserTable();
-		Symbols::lj_tab_new lj_tab_newfunc = Util::func_lj_tab_new;
-		Symbols::lj_gc_barrierf lj_gc_barrierfunc = Util::func_lj_gc_barrierf;
-		if (L->dummy_ffid != FF_C) // HolyLib state
-		{
-			lj_tab_newfunc = RawLua::GetTabNewFunc();
-			lj_gc_barrierfunc = RawLua::GetGCBarrierF();
-		}
-
-		if (lj_tab_newfunc && (bFresh || lj_gc_barrierfunc))
+		if (Util::func_lj_tab_new && (bFresh || Util::func_lj_gc_barrierf))
 		{
 			// We cannot free it since the GC would kill itself... We also SHOULDN'T since the gc handles it already, so NO touching >:(
 			// Why does the GC kill itself? Because inside the GCHeader of the usertable, the next GC object is stored.
@@ -1400,24 +1390,24 @@ struct LuaUserData {
 			// though it's not double linked / there is no "previousgc" variable so we do not know the next gc object.
 			// And lj_tab_free also doesn't take care of this, it just frees the memory, so this caused crashes, memory corruption and infinite loops.
 			// Util::func_lj_tab_free(G(L), gco2tab(gcref(usertable)));
-			setgcref(usertable, obj2gco(lj_tab_newfunc(L, 0, 0)));
+			setgcref(usertable, obj2gco(Util::func_lj_tab_new(L, 0, 0)));
 			
 			if (!bFresh)
 			{ // lj_gc_objbarrier unwrapped since we need to change the call to lj_gc_barrierf -> Util::func_lj_gc_barrierf
 				if (((((GCobj*)(gcref(usertable))))->gch.marked & (0x01 | 0x02)) && ((((GCobj*)(this)))->gch.marked & 0x04))
-							lj_gc_barrierfunc(G(L), ((GCobj*)(this)), ((GCobj*)(gcref(usertable))));
+							Util::func_lj_gc_barrierf(G(L), ((GCobj*)(this)), ((GCobj*)(gcref(usertable))));
 			}
 		} else {
 			pLua->CreateTable();
 			if (!bFresh)
 			{
-				if (lj_gc_barrierfunc)
+				if (Util::func_lj_gc_barrierf)
 				{
 					setgcref(usertable, obj2gco(tabV(Lua::LuaTop(L)-1)));
 
 					{ // lj_gc_objbarrier unwrapped since we need to change the call to lj_gc_barrierf -> Util::func_lj_gc_barrierf
 						if (((((GCobj*)(gcref(usertable))))->gch.marked & (0x01 | 0x02)) && ((((GCobj*)(this)))->gch.marked & 0x04))
-							lj_gc_barrierfunc(G(L), ((GCobj*)(this)), ((GCobj*)(gcref(usertable))));
+							Util::func_lj_gc_barrierf(G(L), ((GCobj*)(this)), ((GCobj*)(gcref(usertable))));
 					}
 					pLua->Pop(1);
 				} else {
