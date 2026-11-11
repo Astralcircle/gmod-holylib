@@ -2,6 +2,7 @@
 
 #include "public/imodule.h"
 #include <vector>
+#include <mutex>
 #include <shared_mutex>
 #include <atomic>
 #include "unordered_stuff.h"
