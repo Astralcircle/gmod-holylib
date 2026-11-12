@@ -728,7 +728,7 @@ static ScopeFlags CanConditionBeRemoved(const std::vector<Token> &tokens, size_t
 	size_t nScopes = 1;
 	pScopes[0].start = start;
 
-	size_t lastNonEmpty = 0; // To avoid backtracking! (Now it just is a very small save in backtracking I guess)
+	size_t lastNonEmpty = start - 1; // To avoid backtracking! (Now it just is a very small save in backtracking I guess)
 	while (start < tokens.size() && tokens[start].type != TK_THEN && tokens[start].type != TK_DO)
 	{
 		ScopeEvalInfo& scope = pScopes[nScopes-1];
@@ -793,8 +793,13 @@ static ScopeFlags CanConditionBeRemoved(const std::vector<Token> &tokens, size_t
 
 static inline void NukeToken(Token& tok, bool bSpace = false)
 {
+	// Line breaks must survive (newlines, multiline strings/comments) or the line numbers shift!
+	unsigned int lineBreaks = tok.lineBreaks;
+	for (char c : tok.content)
+		if (c == '\n') ++lineBreaks;
+
 	tok.content = bSpace ? " " : "";
-	tok.lineBreaks = 0;
+	tok.lineBreaks = (unsigned short)lineBreaks;
 	tok.flag = TokenFlag::SPACE;
 	tok.type = TK_SOMETHING;
 }
@@ -832,12 +837,7 @@ static size_t RemoveScoped(size_t i, std::vector<Token>& tokens, TokenType tok, 
 		}
 		else if (curTok.type == TK_COMMENT)
 		{
-			int lineBreaks = 0;
-			for (char c : curTok.content)
-				if (c=='\n') ++lineBreaks;
-
 			NukeToken(curTok);
-			curTok.lineBreaks = lineBreaks;
 		}
 		else if (curTok.type == TK_ELSE && depth == 1)
 		{
@@ -947,6 +947,7 @@ static void RemoveClientScoped(size_t start, size_t j, std::vector<Token> &token
 	bool isElseIf = tok == TK_ELSEIF;
 	bool returns = !isElseIf && AlwaysReturns(tokens, j + 1, close);
 	NukeIfCond(start, tokens, ScopeFlags::SCOPE_CLIENT);
+	tokens[j].type = isElseIf ? TK_ELSE : TK_DO;
 	tokens[j].content = isElseIf ? "else" : "do";
 
 	bool hasLineBreaks = false;
@@ -1058,6 +1059,9 @@ static void MinifyContents(std::vector<Token> &tokens)
 			if (space == tokens.size())
 				space = i;
 
+			for (char c : tok.content) // Multiline comments must keep their line breaks
+				if (c == '\n') ++tok.lineBreaks;
+
 			tok.content = "";
 			continue;
 		}
@@ -1142,7 +1146,12 @@ static void ProcessTokens(std::vector<Token> &tokens, bool bRemoveServerCode, bo
 		{
 			if (lineStart < tokens.size())
 			{
-				for (size_t j=lineStart; j<i; ++j)
+				size_t first = lineStart;
+				for (size_t j=lineStart; j<i; ++j) // Comments we were told to keep, only what comes after them is trailing
+					if (tokens[j].type == TK_COMMENT && !tokens[j].content.empty())
+						first = j+1;
+
+				for (size_t j=first; j<i; ++j)
 					NukeToken(tokens[j]);
 			}
 
@@ -1238,7 +1247,7 @@ static std::vector<unsigned char> HashString(const char* pData, unsigned int nLe
 	picosha2::hash256_one_by_one hasher;
 	hasher.process(pData, pData + nLength);
 	hasher.finish();
-	
+
 	hasher.get_hash_bytes(hash.begin(), hash.end());
 	return hash;
 }
@@ -1656,7 +1665,7 @@ static SIMPLETHREAD_RETURNVALUE WorkerThread(void* pData)
 			// We lock the lua state if we have one set.
 			// We mainly split this into two passes to avoid blocking the main thread for long!
 			Lua::ScopedThreadAccess pThreadScope;
-			
+
 			// Let's try to avoid an deadlock, we check here due to the main thread possibly shutting down so we cannot expect the StateAccess below to work.
 			if (g_pLuaDataPack.m_pWorkerThreadState.load() != ThreadState::STATE_RUNNING)
 				break;
