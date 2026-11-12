@@ -206,9 +206,6 @@ void CheckPhysicsLag(CPhysicsObject* pObject1, CPhysicsObject* pObject2)
 				pCurrentSkipType = (IVP_SkipType)pType;
 				g_Lua->Pop(1);
 
-				if (g_pPhysEnvModule.InDebug() > 2)
-					Msg(PROJECT_NAME " - physenv: HolyLib:OnPhysicsLag hook called (%i)\n", (int)pCurrentSkipType);
-
 				//g_pIVPHolyLib.SetShouldSkip(pCurrentSkipType != IVP_SkipType::IVP_None);
 			}
 			g_pIsInPhysicsLagCall = false;
@@ -227,8 +224,6 @@ void PostPhysicsLag()
 		g_Lua->PushNumber((double)pSimulationTime);
 
 		g_pIsInPostPhysicsLagCall = true;
-		// VERIFY: What if someone calls IPhysicsEnvironment:Simulate? I mean... it should kinda be fine... right?
-		// BUG: I hate that this is hard coded for the main environment... how the heck could one know which environment is lagging+
 		bool bPrevious = false;
 		CPhysicsEnvironment* pEnvironment = (CPhysicsEnvironment*)g_pPhysics->GetActiveEnvironmentByIndex(0);
 		if (pEnvironment)
@@ -240,8 +235,6 @@ void PostPhysicsLag()
 		pCurrentTime = std::chrono::high_resolution_clock::now(); // Update timer.
 		if (g_Lua->CallFunctionProtected(2, 0, true))
 		{
-			if (g_pPhysEnvModule.InDebug() > 2)
-				Msg(PROJECT_NAME " - physenv: HolyLib:PostPhysicsLag hook called!\n");
 		}
 
 		if (pEnvironment)
@@ -258,8 +251,6 @@ class IVP_Mindist;
 static Detouring::Hook detour_IVP_Mindist_do_impact;
 static void hook_IVP_Mindist_do_impact(IVP_Mindist* mindist)
 {
-	if (g_pPhysEnvModule.InDebug() > 2)
-		Msg(PROJECT_NAME " - physenv: IVP_Mindist::do_impact called! (%i)\n", (int)pCurrentSkipType);
 
 	if (pCurrentSkipType == IVP_SkipType::IVP_SkipImpact)
 		return;
@@ -273,9 +264,6 @@ static void hook_IVP_Event_Manager_Standard_simulate_time_events(void* eventmana
 	pCurrentTime = std::chrono::high_resolution_clock::now();
 	pCurrentSkipType = IVP_SkipType::IVP_None; // Idk if it can happen that something else sets it in the mean time but let's just be sure...
 
-	if (g_pPhysEnvModule.InDebug() > 2)
-		Msg(PROJECT_NAME " - physenv: IVP_Event_Manager_Standard::simulate_time_events called!\n");
-
 	detour_IVP_Event_Manager_Standard_simulate_time_events.GetTrampoline<Symbols::IVP_Event_Manager_Standard_simulate_time_events>()(eventmanager, timemanager, environment, time);
 
 	PostPhysicsLag();
@@ -286,8 +274,6 @@ static Symbols::IVP_Mindist_Base_get_objects func_IVP_Mindist_Base_get_objects;
 static Detouring::Hook detour_IVP_Mindist_simulate_time_event;
 static void hook_IVP_Mindist_simulate_time_event(GMODSDK::IVP_Mindist* mindist, void* environment)
 {
-	if (g_pPhysEnvModule.InDebug() > 2)
-		Msg(PROJECT_NAME " - physenv: IVP_Mindist::simulate_time_event called! (%i)\n", (int)pCurrentSkipType);
 
 
 	GMODSDK::IVP_Real_Object* pObjs[2] = {nullptr, nullptr};
@@ -307,8 +293,6 @@ static void hook_IVP_Mindist_simulate_time_event(GMODSDK::IVP_Mindist* mindist, 
 static Detouring::Hook detour_IVP_Mindist_update_exact_mindist_events;
 static void hook_IVP_Mindist_update_exact_mindist_events(GMODSDK::IVP_Mindist* mindist, GMODSDK::IVP_BOOL allow_hull_conversion, GMODSDK::IVP_MINDIST_EVENT_HINT event_hint)
 {
-	if (g_pPhysEnvModule.InDebug() > 2)
-		Msg(PROJECT_NAME " - physenv: IVP_Mindist::update_exact_mindist_events called! (%i)\n", (int)pCurrentSkipType);
 
 	GMODSDK::IVP_Real_Object* pObjs[2] = {nullptr, nullptr};
 	if (func_IVP_Mindist_Base_get_objects)
@@ -320,10 +304,7 @@ static void hook_IVP_Mindist_update_exact_mindist_events(GMODSDK::IVP_Mindist* m
 
 	if (pCurrentSkipType == IVP_SkipType::IVP_SkipSimulation)
 		return;
-
-	//Msg("Debug3 start %i\n", (int)pCurrentSkipType);
 	detour_IVP_Mindist_update_exact_mindist_events.GetTrampoline<Symbols::IVP_Mindist_update_exact_mindist_events>()(mindist, allow_hull_conversion, event_hint);
-	//Msg("Debug3 end %i\n", (int)pCurrentSkipType);
 }
 
 static Detouring::Hook detour_IVP_Mindist_Minimize_Solver_p_minimize_PP;
@@ -591,8 +572,6 @@ void hook_CPhysicsEnvironment_DestroyObject(GMODSDK::CPhysicsEnvironment* pEnvir
 
 	if (foundIndex == -1)
 	{
-		if (g_pPhysEnvModule.InDebug())
-			Warning(PROJECT_NAME " - physenv: Failed to find object on environment (%p)!\n", pEnvironment);
 		return;
 	}
 
