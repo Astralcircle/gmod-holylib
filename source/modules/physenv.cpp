@@ -122,8 +122,6 @@ class IVPHolyLib
 #endif
 {
 public:
-	~IVPHolyLib() IVPHolyLib_OVERRIDE {};
-
 	bool CheckLag(const char*, void* pObject1, void* pObject2) IVPHolyLib_OVERRIDE
 	{
 		CheckPhysicsLag(static_cast<CPhysicsObject*>(pObject1), static_cast<CPhysicsObject*>(pObject2));
@@ -166,51 +164,46 @@ static IVPHolyLib g_pIVPHolyLib;
 
 GMODPush_LuaClass(IPhysicsObject, GarrysMod::Lua::Type::PhysObj);
 
+static void CallPhysicsLagHook(CPhysicsObject* pObject1, CPhysicsObject* pObject2, std::chrono::milliseconds::rep pSimulationTime)
+{
+	if (!Lua::PushHook("HolyLib:OnPhysicsLag"))
+		return;
+
+	g_Lua->PushNumber((double)pSimulationTime);
+
+	if (pObject1)
+		Push_IPhysicsObject(g_Lua, pObject1);
+	else
+		g_Lua->PushNil();
+
+	if (pObject2)
+		Push_IPhysicsObject(g_Lua, pObject2);
+	else
+		g_Lua->PushNil();
+
+	g_pIsInPhysicsLagCall = true;
+	pCurrentTime = std::chrono::high_resolution_clock::now();
+	if (g_Lua->CallFunctionProtected(4, 1, true))
+	{
+		int pType = (int)g_Lua->GetNumber(-1);
+		if (pType >= (int)IVP_SkipType::IVP_LastSkipType || pType < -1)
+			pType = (int)IVP_SkipType::IVP_NoSkip;
+
+		pCurrentSkipType = (IVP_SkipType)pType;
+		g_Lua->Pop(1);
+	}
+	g_pIsInPhysicsLagCall = false;
+}
+
 void CheckPhysicsLag(CPhysicsObject* pObject1, CPhysicsObject* pObject2)
 {
-	if (pCurrentSkipType != IVP_SkipType::IVP_None || g_pIsInPhysicsLagCall) // We already have a skip type.
+	if (pCurrentSkipType != IVP_SkipType::IVP_None || g_pIsInPhysicsLagCall)
 		return;
 
 	auto pTime = std::chrono::high_resolution_clock::now();
 	auto pSimulationTime = std::chrono::duration_cast<std::chrono::milliseconds>(pTime - pCurrentTime).count();
 	if (pSimulationTime > pCurrentLagThreadshold)
-	{
-		if (Lua::PushHook("HolyLib:OnPhysicsLag"))
-		{
-			g_Lua->PushNumber((double)pSimulationTime);
-
-			if (pObject1)
-			{
-				Push_IPhysicsObject(g_Lua, pObject1);
-			} else {
-				g_Lua->PushNil();
-			}
-
-			if (pObject2)
-			{
-				Push_IPhysicsObject(g_Lua, pObject2);
-			} else {
-				g_Lua->PushNil();
-			}
-
-
-			g_pIsInPhysicsLagCall = true;
-			pCurrentTime = std::chrono::high_resolution_clock::now(); // Update timer.
-			if (g_Lua->CallFunctionProtected(4, 1, true))
-			{
-				int pType = (int)g_Lua->GetNumber(-1);
-				if (pType >= (int)IVP_SkipType::IVP_LastSkipType || pType < -1)
-					pType = (int)IVP_SkipType::IVP_NoSkip; // Invalid value. So we won't do shit.
-
-
-				pCurrentSkipType = (IVP_SkipType)pType;
-				g_Lua->Pop(1);
-
-				//g_pIVPHolyLib.SetShouldSkip(pCurrentSkipType != IVP_SkipType::IVP_None);
-			}
-			g_pIsInPhysicsLagCall = false;
-		}
-	}
+		CallPhysicsLagHook(pObject1, pObject2, pSimulationTime);
 }
 
 IPhysics* g_pPhysics = nullptr;
@@ -233,9 +226,7 @@ void PostPhysicsLag()
 		}
 
 		pCurrentTime = std::chrono::high_resolution_clock::now(); // Update timer.
-		if (g_Lua->CallFunctionProtected(2, 0, true))
-		{
-		}
+		g_Lua->CallFunctionProtected(2, 0, true);
 
 		if (pEnvironment)
 			pEnvironment->m_inSimulation = bPrevious;
@@ -271,18 +262,38 @@ static void hook_IVP_Event_Manager_Standard_simulate_time_events(void* eventmana
 }
 
 static Symbols::IVP_Mindist_Base_get_objects func_IVP_Mindist_Base_get_objects;
+
+static inline bool ShouldCheckPhysicsLag()
+{
+	if (pCurrentSkipType != IVP_SkipType::IVP_None || g_pIsInPhysicsLagCall)
+		return false;
+
+	auto pTime = std::chrono::high_resolution_clock::now();
+	auto pSimulationTime = std::chrono::duration_cast<std::chrono::milliseconds>(pTime - pCurrentTime).count();
+	return pSimulationTime > pCurrentLagThreadshold;
+}
+
+static inline void CheckMindistPhysicsLag(GMODSDK::IVP_Mindist* mindist)
+{
+	if (!func_IVP_Mindist_Base_get_objects || !ShouldCheckPhysicsLag())
+		return;
+
+	GMODSDK::IVP_Real_Object* pObjs[2] = { nullptr, nullptr };
+	func_IVP_Mindist_Base_get_objects(mindist, pObjs);
+
+	if (pCurrentSkipType != IVP_SkipType::IVP_None || g_pIsInPhysicsLagCall)
+		return;
+
+	auto pTime = std::chrono::high_resolution_clock::now();
+	auto pSimulationTime = std::chrono::duration_cast<std::chrono::milliseconds>(pTime - pCurrentTime).count();
+	if (pSimulationTime > pCurrentLagThreadshold)
+		CallPhysicsLagHook(GetClientDataFromGModObject(pObjs[0]), GetClientDataFromGModObject(pObjs[1]), pSimulationTime);
+}
+
 static Detouring::Hook detour_IVP_Mindist_simulate_time_event;
 static void hook_IVP_Mindist_simulate_time_event(GMODSDK::IVP_Mindist* mindist, void* environment)
 {
-
-
-	GMODSDK::IVP_Real_Object* pObjs[2] = {nullptr, nullptr};
-	if (func_IVP_Mindist_Base_get_objects)
-	{
-		func_IVP_Mindist_Base_get_objects(mindist, pObjs);
-
-		CheckPhysicsLag(GetClientDataFromGModObject(pObjs[0]), GetClientDataFromGModObject(pObjs[1]));
-	}
+	CheckMindistPhysicsLag(mindist);
 
 	if (pCurrentSkipType == IVP_SkipType::IVP_SkipSimulation)
 		return;
@@ -293,30 +304,18 @@ static void hook_IVP_Mindist_simulate_time_event(GMODSDK::IVP_Mindist* mindist, 
 static Detouring::Hook detour_IVP_Mindist_update_exact_mindist_events;
 static void hook_IVP_Mindist_update_exact_mindist_events(GMODSDK::IVP_Mindist* mindist, GMODSDK::IVP_BOOL allow_hull_conversion, GMODSDK::IVP_MINDIST_EVENT_HINT event_hint)
 {
-
-	GMODSDK::IVP_Real_Object* pObjs[2] = {nullptr, nullptr};
-	if (func_IVP_Mindist_Base_get_objects)
-	{
-		func_IVP_Mindist_Base_get_objects(mindist, pObjs);
-
-		CheckPhysicsLag(GetClientDataFromGModObject(pObjs[0]), GetClientDataFromGModObject(pObjs[1]));
-	}
+	CheckMindistPhysicsLag(mindist);
 
 	if (pCurrentSkipType == IVP_SkipType::IVP_SkipSimulation)
 		return;
+
 	detour_IVP_Mindist_update_exact_mindist_events.GetTrampoline<Symbols::IVP_Mindist_update_exact_mindist_events>()(mindist, allow_hull_conversion, event_hint);
 }
 
 static Detouring::Hook detour_IVP_Mindist_Minimize_Solver_p_minimize_PP;
 static GMODSDK::IVP_MRC_TYPE hook_IVP_Mindist_Minimize_Solver_p_minimize_PP(GMODSDK::IVP_Mindist_Minimize_Solver* mindistMinimizeSolver, const GMODSDK::IVP_Compact_Edge *A, const GMODSDK::IVP_Compact_Edge *B, IVP_Cache_Ledge_Point *m_cache_A, IVP_Cache_Ledge_Point *m_cache_B)
 {
-	GMODSDK::IVP_Real_Object* pObjs[2] = {nullptr, nullptr};
-	if (func_IVP_Mindist_Base_get_objects)
-	{
-		func_IVP_Mindist_Base_get_objects(mindistMinimizeSolver->mindist, pObjs);
-
-		CheckPhysicsLag(GetClientDataFromGModObject(pObjs[0]), GetClientDataFromGModObject(pObjs[1]));
-	}
+	CheckMindistPhysicsLag(mindistMinimizeSolver->mindist);
 
 	return detour_IVP_Mindist_Minimize_Solver_p_minimize_PP.GetTrampoline<Symbols::IVP_Mindist_Minimize_Solver_p_minimize_PP>()(mindistMinimizeSolver, A, B, m_cache_A, m_cache_B);
 }
